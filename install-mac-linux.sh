@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ============================================================
 # AI Coding Installer — macOS / Linux / WSL 一键安装脚本
-# 版本: 1.2.0
+# 版本: 1.3.0
 # 用途: 三档服务套餐安装 Claude Code + OpenClaw 所需依赖
 # ============================================================
 # 安全声明:
@@ -46,31 +46,13 @@ if [ "$DRY_RUN" = true ] && [ "$CHECK_ONLY" = true ]; then
 fi
 
 # ============================================================
-# 安装命令配置区
+# 安装命令配置区（URL / 包名）
+# 带管道的命令已封装为函数，见下方"安装函数"区
 # ============================================================
 
 CLAUDE_INSTALL_URL="https://claude.ai/install.sh"
-CLAUDE_INSTALL_CMD="curl -fsSL ${CLAUDE_INSTALL_URL} | bash"
-
 OPENCLAW_INSTALL_URL="https://openclaw.ai/install.sh"
-OPENCLAW_INSTALL_CMD="curl -fsSL ${OPENCLAW_INSTALL_URL} | bash -s -- --no-onboard"
-
-GIT_BREW_CMD="brew install git"
-GIT_APT_CMD="sudo apt-get update -qq && sudo apt-get install -y git"
-GIT_YUM_CMD="sudo yum install -y git"
-GIT_DNF_CMD="sudo dnf install -y git"
-GIT_PACMAN_CMD="sudo pacman -S --noconfirm git"
-GIT_ZYPPER_CMD="sudo zypper install -y git"
-
-NODE_BREW_CMD="brew install node"
 NODE_NODESOURCE_URL="https://deb.nodesource.com/setup_lts.x"
-NODE_NODESOURCE_CMD="curl -fsSL ${NODE_NODESOURCE_URL} | sudo -E bash - && sudo apt-get install -y nodejs"
-
-PNPM_NPM_CMD="npm install -g pnpm"
-
-CURL_INSTALL_APT="sudo apt-get install -y curl"
-CURL_INSTALL_YUM="sudo yum install -y curl"
-CURL_INSTALL_DNF="sudo dnf install -y curl"
 
 # ============================================================
 # 全局变量
@@ -96,13 +78,14 @@ HAS_OPENCLAW=false
 HAS_HOMEBREW=false
 NODE_VERSION_LOW=false
 NODE_VERSION=""
+NEED_NODE_UPGRADE=false
 
 # 套餐选择
 PLAN_CHOICE=0
 PLAN_NAME=""
 PLAN_PRICE=""
 PLAN_SUPPORT=""
-PLAN_WORKFLOW_DESC=""
+PLAN_TUTORIAL=true
 PLAN_WORKFLOW_COUNT=0
 INSTALL_CLAUDE=false
 INSTALL_OPENCLAW=false
@@ -198,6 +181,13 @@ check_node_version() {
 
 get_install_command() {
     case "$1" in
+        "curl")
+            case "$PKG_MANAGER" in
+                apt) echo "sudo apt-get install -y curl" ;;
+                yum) echo "sudo yum install -y curl" ;;
+                dnf) echo "sudo dnf install -y curl" ;;
+                *)   echo "通过 $PKG_MANAGER 安装 curl" ;;
+            esac ;;
         "Git")
             case "$PKG_MANAGER" in
                 brew) echo "brew install git" ;;
@@ -206,7 +196,7 @@ get_install_command() {
                 dnf) echo "sudo dnf install -y git" ;;
                 pacman) echo "sudo pacman -S --noconfirm git" ;;
                 zypper) echo "sudo zypper install -y git" ;;
-                *) echo "通过 $PKG_MANAGER 安装 (具体命令请查看脚本配置区)" ;;
+                *) echo "通过 $PKG_MANAGER 安装" ;;
             esac ;;
         "Node.js LTS")
             case "$PKG_MANAGER" in
@@ -216,7 +206,7 @@ get_install_command() {
                 yum) echo "sudo yum install -y nodejs" ;;
                 pacman) echo "sudo pacman -S --noconfirm nodejs npm" ;;
                 zypper) echo "sudo zypper install -y nodejs npm" ;;
-                *) echo "通过 $PKG_MANAGER 安装 (具体命令请查看脚本配置区)" ;;
+                *) echo "通过 $PKG_MANAGER 安装" ;;
             esac ;;
         "pnpm") echo "npm install -g pnpm (备选: corepack)" ;;
         "Claude Code") echo "curl -fsSL https://claude.ai/install.sh | bash" ;;
@@ -257,7 +247,6 @@ detect_os() {
             ;;
         *)
             echo "错误: 不支持的操作系统: $kernel"
-            echo "本脚本仅支持 macOS、Linux 和 WSL"
             exit 1
             ;;
     esac
@@ -289,7 +278,7 @@ detect_pkg_manager() {
 }
 
 # ============================================================
-# 环境检测
+# 环境检测（只检测，不安装任何东西）
 # ============================================================
 
 detect_tools() {
@@ -298,26 +287,13 @@ detect_tools() {
     append_report ""
     append_report "--- 环境检测 ---"
 
-    # curl
+    # curl — 仅记录缺失，安装动作在确认后的队列中执行
     if command_exists curl; then
         HAS_CURL=true
         log_step "SKIP" "curl: $(get_version curl)"
     else
         HAS_CURL=false
-        if [ "$DRY_RUN" = true ] || [ "$CHECK_ONLY" = true ]; then
-            log_step "MISSING" "curl: 未安装（必需工具）"
-        else
-            log_step "MISSING" "curl: 未安装（必需工具）"
-            echo "        正在尝试安装 curl..."
-            install_curl
-            if command_exists curl; then
-                HAS_CURL=true
-                log_step "OK" "curl: 安装成功"
-            else
-                log_step "FAIL" "curl: 安装失败，无法继续。请手动安装 curl 后重试。"
-                exit 1
-            fi
-        fi
+        log_step "MISSING" "curl: 未安装"
     fi
 
     if command_exists git; then
@@ -424,8 +400,8 @@ select_plan() {
                 PLAN_NAME="基础上手包"
                 PLAN_PRICE="¥58"
                 PLAN_SUPPORT="7 天"
-                PLAN_WORKFLOW_DESC="新手教程"
-                PLAN_WORKFLOW_COUNT=1
+                PLAN_TUTORIAL=true
+                PLAN_WORKFLOW_COUNT=0
                 select_tool
                 return
                 ;;
@@ -434,8 +410,8 @@ select_plan() {
                 PLAN_NAME="进阶工作流包"
                 PLAN_PRICE="¥98"
                 PLAN_SUPPORT="14 天"
-                PLAN_WORKFLOW_DESC="新手教程 + 5 套指定工作流教程"
-                PLAN_WORKFLOW_COUNT=6
+                PLAN_TUTORIAL=true
+                PLAN_WORKFLOW_COUNT=5
                 select_tool
                 return
                 ;;
@@ -444,8 +420,8 @@ select_plan() {
                 PLAN_NAME="全套效率包"
                 PLAN_PRICE="¥158/¥198"
                 PLAN_SUPPORT="14 天"
-                PLAN_WORKFLOW_DESC="新手教程 + 10 套指定工作流教程"
-                PLAN_WORKFLOW_COUNT=11
+                PLAN_TUTORIAL=true
+                PLAN_WORKFLOW_COUNT=10
                 INSTALL_CLAUDE=true
                 INSTALL_OPENCLAW=true
                 TOOL_CHOICE_NAME="Claude Code + OpenClaw"
@@ -456,7 +432,7 @@ select_plan() {
                 PLAN_NAME="仅环境检测"
                 PLAN_PRICE="-"
                 PLAN_SUPPORT="-"
-                PLAN_WORKFLOW_DESC="-"
+                PLAN_TUTORIAL=false
                 PLAN_WORKFLOW_COUNT=0
                 return
                 ;;
@@ -508,19 +484,29 @@ log_plan_info() {
     append_report "价格: ${PLAN_PRICE}"
     append_report "售后: ${PLAN_SUPPORT}"
     append_report "选择安装: ${TOOL_CHOICE_NAME}"
-    append_report "需交付工作流: ${PLAN_WORKFLOW_DESC}"
+    append_report "新手教程: $([ "$PLAN_TUTORIAL" = true ] && echo '是' || echo '否')"
+    append_report "指定工作流数量: ${PLAN_WORKFLOW_COUNT}"
 }
 
 # ============================================================
-# 安装队列
+# 安装队列（依赖顺序: curl → Git → Node → pnpm → Claude/OpenClaw）
 # ============================================================
 
 build_install_queue() {
     INSTALL_QUEUE=()
 
-    [ "$HAS_GIT" = false ] && INSTALL_QUEUE+=("Git")
-    [ "$HAS_NODE" = false ] && INSTALL_QUEUE+=("Node.js LTS")
-    [ "$HAS_PNPM" = false ] && INSTALL_QUEUE+=("pnpm")
+    if [ "$HAS_CURL" = false ]; then
+        INSTALL_QUEUE+=("curl")
+    fi
+    if [ "$HAS_GIT" = false ]; then
+        INSTALL_QUEUE+=("Git")
+    fi
+    if [ "$HAS_NODE" = false ] || [ "$NEED_NODE_UPGRADE" = true ]; then
+        INSTALL_QUEUE+=("Node.js LTS")
+    fi
+    if [ "$HAS_PNPM" = false ]; then
+        INSTALL_QUEUE+=("pnpm")
+    fi
 
     if [ "$INSTALL_CLAUDE" = true ] && [ "$HAS_CLAUDE" = false ]; then
         INSTALL_QUEUE+=("Claude Code")
@@ -554,11 +540,13 @@ show_plan_and_confirm() {
     echo "套餐: ${PLAN_NAME} (${PLAN_PRICE})"
     echo "售后: ${PLAN_SUPPORT}"
     echo "安装工具: ${TOOL_CHOICE_NAME}"
-    echo "交付工作流: ${PLAN_WORKFLOW_DESC}"
+    echo "新手教程: $([ "$PLAN_TUTORIAL" = true ] && echo '是' || echo '否')"
+    echo "指定工作流: ${PLAN_WORKFLOW_COUNT} 套"
     append_report "套餐: ${PLAN_NAME} (${PLAN_PRICE})"
     append_report "售后: ${PLAN_SUPPORT}"
     append_report "安装工具: ${TOOL_CHOICE_NAME}"
-    append_report "交付工作流: ${PLAN_WORKFLOW_DESC}"
+    append_report "新手教程: $([ "$PLAN_TUTORIAL" = true ] && echo '是' || echo '否')"
+    append_report "指定工作流数量: ${PLAN_WORKFLOW_COUNT}"
 
     echo ""
 
@@ -583,12 +571,26 @@ show_plan_and_confirm() {
         i=$((i + 1))
     done
 
-    # Node 版本警告：选了 OpenClaw 且 Node 版本过低
+    # Node 版本警告 + 升级询问：选了 OpenClaw 且 Node 已安装但版本过低
     if [ "$INSTALL_OPENCLAW" = true ] && [ "$NODE_VERSION_LOW" = true ] && [ "$HAS_NODE" = true ]; then
         echo ""
         echo "  ⚠ Node.js 版本 ${NODE_VERSION} 低于 OpenClaw 推荐版本 (24 或 22.16+)。"
-        echo "    本脚本不会自动升级已安装的 Node。如需升级，请手动操作后重新运行。"
-        append_report "⚠ Node 版本过低 (${NODE_VERSION})，OpenClaw 推荐 24 或 22.16+，未自动升级"
+        if [ "$DRY_RUN" = true ]; then
+            echo "    安装计划中不会自动升级 Node。如需升级请手动操作。"
+            append_report "⚠ Node 版本过低 (${NODE_VERSION})，OpenClaw 推荐 24 或 22.16+"
+        else
+            read -r -p "  是否升级 Node.js? (y/N): " UPGRADE_NODE
+            if [ "$UPGRADE_NODE" = "y" ] || [ "$UPGRADE_NODE" = "Y" ]; then
+                NEED_NODE_UPGRADE=true
+                # 重新构建队列以纳入 Node 升级
+                build_install_queue
+                echo "  已确认升级 Node.js。"
+                append_report "用户确认升级 Node.js (${NODE_VERSION} → LTS)"
+            else
+                echo "  将继续安装 OpenClaw，但报告已记录版本风险。"
+                append_report "⚠ 用户选择不升级 Node (${NODE_VERSION})，OpenClaw 可能在低版本下不稳定"
+            fi
+        fi
     fi
 
     if [ "$DRY_RUN" = true ]; then
@@ -612,16 +614,45 @@ show_plan_and_confirm() {
 }
 
 # ============================================================
-# 安装函数
+# 安装函数（带管道命令已封装为函数，不再用字符串变量）
 # ============================================================
 
-install_curl() {
+install_claude_official() {
+    curl -fsSL "$CLAUDE_INSTALL_URL" | bash
+}
+
+install_openclaw_official() {
+    curl -fsSL "$OPENCLAW_INSTALL_URL" | bash -s -- --no-onboard
+}
+
+install_nodejs_nodesource() {
+    curl -fsSL "$NODE_NODESOURCE_URL" | sudo -E bash - && sudo apt-get install -y nodejs
+}
+
+install_curl_step() {
+    if [ "$HAS_CURL" = true ]; then
+        log_step "SKIP" "curl: 已安装，跳过"
+        return
+    fi
+    log_step "INFO" "正在安装 curl..."
     case "$PKG_MANAGER" in
-        apt) $CURL_INSTALL_APT ;;
-        yum) $CURL_INSTALL_YUM ;;
-        dnf) $CURL_INSTALL_DNF ;;
-        *)   echo "        请手动安装 curl" ;;
+        apt) sudo apt-get install -y curl ;;
+        yum) sudo yum install -y curl ;;
+        dnf) sudo dnf install -y curl ;;
+        *)
+            echo "        无法确定包管理器，请手动安装 curl"
+            log_step "FAIL" "curl: 未识别的包管理器，请手动安装"
+            FAIL_LIST+=("curl")
+            return 1
+            ;;
     esac
+    if command_exists curl; then
+        HAS_CURL=true
+        log_step "OK" "curl: 安装成功 ($(get_version curl))"
+    else
+        log_step "FAIL" "curl: 安装失败，后续依赖 curl 的步骤也会失败"
+        FAIL_LIST+=("curl")
+    fi
 }
 
 install_homebrew() {
@@ -656,13 +687,13 @@ install_git() {
             if ! $HAS_HOMEBREW; then
                 install_homebrew
             fi
-            $GIT_BREW_CMD && result=0
+            brew install git && result=0
             ;;
-        apt)   $GIT_APT_CMD && result=0 ;;
-        yum)   $GIT_YUM_CMD && result=0 ;;
-        dnf)   $GIT_DNF_CMD && result=0 ;;
-        pacman) $GIT_PACMAN_CMD && result=0 ;;
-        zypper) $GIT_ZYPPER_CMD && result=0 ;;
+        apt)   sudo apt-get update -qq && sudo apt-get install -y git && result=0 ;;
+        yum)   sudo yum install -y git && result=0 ;;
+        dnf)   sudo dnf install -y git && result=0 ;;
+        pacman) sudo pacman -S --noconfirm git && result=0 ;;
+        zypper) sudo zypper install -y git && result=0 ;;
         *)
             echo "        无法确定包管理器，请手动安装 Git"
             log_step "FAIL" "Git: 未识别的包管理器"
@@ -680,21 +711,25 @@ install_git() {
 }
 
 install_nodejs() {
-    if [ "$HAS_NODE" = true ]; then
+    if [ "$HAS_NODE" = true ] && [ "$NEED_NODE_UPGRADE" != true ]; then
         log_step "SKIP" "Node.js: 已安装，跳过"
         return
     fi
-    log_step "INFO" "正在安装 Node.js LTS..."
+    if [ "$NEED_NODE_UPGRADE" = true ]; then
+        log_step "INFO" "正在升级 Node.js (当前: $(get_version node))..."
+    else
+        log_step "INFO" "正在安装 Node.js LTS..."
+    fi
     local result=1
     case "$PKG_MANAGER" in
         brew)
             if ! $HAS_HOMEBREW; then
                 install_homebrew
             fi
-            $NODE_BREW_CMD && result=0
+            brew install node && result=0
             ;;
         apt)
-            $NODE_NODESOURCE_CMD && result=0
+            install_nodejs_nodesource && result=0
             ;;
         yum|dnf)
             echo "        尝试通过包管理器安装 Node.js..."
@@ -722,6 +757,7 @@ install_nodejs() {
     if [ $result -eq 0 ] && command_exists node; then
         HAS_NODE=true
         HAS_NPM=true
+        NEED_NODE_UPGRADE=false
         log_step "OK" "Node.js: 安装成功 ($(get_version node))"
         log_step "OK" "npm: 附带安装 ($(get_version npm))"
     else
@@ -741,7 +777,7 @@ install_pnpm() {
         return
     fi
     log_step "INFO" "正在安装 pnpm..."
-    if $PNPM_NPM_CMD; then
+    if npm install -g pnpm; then
         HAS_PNPM=true
         log_step "OK" "pnpm: 安装成功 ($(get_version pnpm))"
     else
@@ -767,7 +803,7 @@ install_claude() {
         return
     fi
     log_step "INFO" "正在安装 Claude Code（官方安装脚本）..."
-    if $CLAUDE_INSTALL_CMD; then
+    if install_claude_official; then
         if command_exists claude; then
             HAS_CLAUDE=true
             log_step "OK" "Claude Code: 安装成功 ($(get_version claude))"
@@ -796,7 +832,7 @@ install_openclaw() {
         return
     fi
     log_step "INFO" "正在安装 OpenClaw（官方安装脚本, no-onboard 模式）..."
-    if $OPENCLAW_INSTALL_CMD; then
+    if install_openclaw_official; then
         if command_exists openclaw; then
             HAS_OPENCLAW=true
             log_step "OK" "OpenClaw: 安装成功 ($(get_version openclaw))"
@@ -830,6 +866,7 @@ execute_install() {
     for step in "${INSTALL_QUEUE[@]}"; do
         echo ""
         case "$step" in
+            "curl")        install_curl_step ;;
             "Git")         install_git ;;
             "Node.js LTS") install_nodejs ;;
             "pnpm")        install_pnpm ;;
@@ -891,9 +928,9 @@ show_summary() {
 
         echo ""
         echo "套餐: ${PLAN_NAME} (${PLAN_PRICE}) | 售后: ${PLAN_SUPPORT}"
-        echo "交付工作流: ${PLAN_WORKFLOW_DESC}"
+        echo "新手教程: $([ "$PLAN_TUTORIAL" = true ] && echo '是' || echo '否') | 指定工作流: ${PLAN_WORKFLOW_COUNT} 套"
         append_report "套餐: ${PLAN_NAME} (${PLAN_PRICE}) | 售后: ${PLAN_SUPPORT}"
-        append_report "交付工作流: ${PLAN_WORKFLOW_DESC}"
+        append_report "新手教程: $([ "$PLAN_TUTORIAL" = true ] && echo '是' || echo '否') | 指定工作流: ${PLAN_WORKFLOW_COUNT} 套"
     fi
 
     echo ""
@@ -937,8 +974,13 @@ show_next_steps() {
     fi
 
     echo "  ▸ 交付提醒:"
-    echo "    本套餐需交付: ${PLAN_WORKFLOW_DESC}"
-    echo "    请在安装完成后向用户交付对应工作流教程。"
+    if [ "$PLAN_TUTORIAL" = true ]; then
+        echo "    - 新手教程"
+    fi
+    if [ "$PLAN_WORKFLOW_COUNT" -gt 0 ]; then
+        echo "    - ${PLAN_WORKFLOW_COUNT} 套指定工作流教程"
+    fi
+    echo "    请在安装完成后向用户交付对应内容。"
     echo ""
 
     echo "  ▸ 验证安装:"
@@ -952,7 +994,8 @@ show_next_steps() {
 
     append_report ""
     append_report "--- 后续步骤 ---"
-    append_report "套餐交付: ${PLAN_WORKFLOW_DESC}"
+    append_report "新手教程: $([ "$PLAN_TUTORIAL" = true ] && echo '是' || echo '否')"
+    append_report "指定工作流: ${PLAN_WORKFLOW_COUNT} 套"
     append_report "用户需手动完成首次登录配置"
 }
 
@@ -963,7 +1006,7 @@ show_next_steps() {
 main() {
     clear 2>/dev/null || true
     echo "=========================================="
-    echo "  AI Coding Installer v1.2.0"
+    echo "  AI Coding Installer v1.3.0"
     echo "  macOS / Linux / WSL 安装脚本"
     if [ "$DRY_RUN" = true ]; then
         echo "  模式: DRY-RUN (仅预览，不安装)"

@@ -1,6 +1,6 @@
 # ============================================================
 # AI Coding Installer — Windows 10/11 安装脚本
-# 版本: 1.2.0
+# 版本: 1.3.0
 # 用途: 三档服务套餐安装 Claude Code + OpenClaw 所需依赖
 # ============================================================
 # 安全声明:
@@ -58,13 +58,14 @@ $Script:HasOpenClaw = $false
 $Script:IsAdmin = $false
 $Script:NodeVersionLow = $false
 $Script:NodeVersion = ""
+$Script:NeedNodeUpgrade = $false
 
 # 套餐选择
 $Script:PlanChoice = 0
 $Script:PlanName = ""
 $Script:PlanPrice = ""
 $Script:PlanSupport = ""
-$Script:PlanWorkflowDesc = ""
+$Script:PlanTutorial = $true
 $Script:PlanWorkflowCount = 0
 $Script:InstallClaude = $false
 $Script:InstallOpenClaw = $false
@@ -144,7 +145,7 @@ function Get-InstallCommand {
     param([string]$StepName)
     switch ($StepName) {
         "Git"          { return $GitInstallWinget }
-        "Node.js LTS"  { return $NodeInstallWinget }
+        "Node.js LTS"  { if ($Script:NeedNodeUpgrade) { return $NodeInstallWinget + " (升级)" } else { return $NodeInstallWinget } }
         "pnpm"         { return $PnpmInstallNpm + " (备选: corepack)" }
         "Claude Code"  { return "优先: $ClaudeInstallWinget ; 回退: iwr -useb $ClaudeInstallUrl | iex" }
         "OpenClaw"     { return "& ([scriptblock]::Create((iwr -useb $OpenClawInstallUrl))) -NoOnboard" }
@@ -202,7 +203,7 @@ function Test-NodeVersion {
 }
 
 # ============================================================
-# 环境检测
+# 环境检测（只检测，不安装任何东西）
 # ============================================================
 
 function Detect-Tools {
@@ -315,8 +316,8 @@ function Show-PlanMenu {
                 $Script:PlanName = "基础上手包"
                 $Script:PlanPrice = "¥58"
                 $Script:PlanSupport = "7 天"
-                $Script:PlanWorkflowDesc = "新手教程"
-                $Script:PlanWorkflowCount = 1
+                $Script:PlanTutorial = $true
+                $Script:PlanWorkflowCount = 0
                 Select-Tool
                 return
             }
@@ -325,8 +326,8 @@ function Show-PlanMenu {
                 $Script:PlanName = "进阶工作流包"
                 $Script:PlanPrice = "¥98"
                 $Script:PlanSupport = "14 天"
-                $Script:PlanWorkflowDesc = "新手教程 + 5 套指定工作流教程"
-                $Script:PlanWorkflowCount = 6
+                $Script:PlanTutorial = $true
+                $Script:PlanWorkflowCount = 5
                 Select-Tool
                 return
             }
@@ -335,8 +336,8 @@ function Show-PlanMenu {
                 $Script:PlanName = "全套效率包"
                 $Script:PlanPrice = "¥158/¥198"
                 $Script:PlanSupport = "14 天"
-                $Script:PlanWorkflowDesc = "新手教程 + 10 套指定工作流教程"
-                $Script:PlanWorkflowCount = 11
+                $Script:PlanTutorial = $true
+                $Script:PlanWorkflowCount = 10
                 $Script:InstallClaude = $true
                 $Script:InstallOpenClaw = $true
                 $Script:ToolChoiceName = "Claude Code + OpenClaw"
@@ -347,7 +348,7 @@ function Show-PlanMenu {
                 $Script:PlanName = "仅环境检测"
                 $Script:PlanPrice = "-"
                 $Script:PlanSupport = "-"
-                $Script:PlanWorkflowDesc = "-"
+                $Script:PlanTutorial = $false
                 $Script:PlanWorkflowCount = 0
                 return
             }
@@ -399,7 +400,8 @@ function Log-PlanInfo {
     Append-Report "价格: $Script:PlanPrice"
     Append-Report "售后: $Script:PlanSupport"
     Append-Report "选择安装: $Script:ToolChoiceName"
-    Append-Report "需交付工作流: $Script:PlanWorkflowDesc"
+    Append-Report "新手教程: $(if ($Script:PlanTutorial) { '是' } else { '否' })"
+    Append-Report "指定工作流数量: $Script:PlanWorkflowCount"
 }
 
 # ============================================================
@@ -409,12 +411,10 @@ function Log-PlanInfo {
 function Build-InstallQueue {
     $Script:InstallQueue = @()
 
-    # 基础依赖始终检查
     if (-not $Script:HasGit)  { $Script:InstallQueue += "Git" }
-    if (-not $Script:HasNode) { $Script:InstallQueue += "Node.js LTS" }
+    if ((-not $Script:HasNode) -or $Script:NeedNodeUpgrade) { $Script:InstallQueue += "Node.js LTS" }
     if (-not $Script:HasPnpm) { $Script:InstallQueue += "pnpm" }
 
-    # 根据套餐选择添加 Claude Code / OpenClaw
     if ($Script:InstallClaude -and -not $Script:HasClaude) {
         $Script:InstallQueue += "Claude Code"
     }
@@ -447,11 +447,13 @@ function Show-PlanAndConfirm {
     Write-Host "套餐: $Script:PlanName ($Script:PlanPrice)"
     Write-Host "售后: $Script:PlanSupport"
     Write-Host "安装工具: $Script:ToolChoiceName"
-    Write-Host "交付工作流: $Script:PlanWorkflowDesc"
+    Write-Host "新手教程: $(if ($Script:PlanTutorial) { '是' } else { '否' })"
+    Write-Host "指定工作流: $Script:PlanWorkflowCount 套"
     Append-Report "套餐: $Script:PlanName ($Script:PlanPrice)"
     Append-Report "售后: $Script:PlanSupport"
     Append-Report "安装工具: $Script:ToolChoiceName"
-    Append-Report "交付工作流: $Script:PlanWorkflowDesc"
+    Append-Report "新手教程: $(if ($Script:PlanTutorial) { '是' } else { '否' })"
+    Append-Report "指定工作流数量: $Script:PlanWorkflowCount"
 
     Write-Host ""
 
@@ -475,12 +477,25 @@ function Show-PlanAndConfirm {
         }
     }
 
-    # Node 版本警告：选了 OpenClaw 且 Node 版本过低
+    # Node 版本警告 + 升级询问：选了 OpenClaw 且 Node 已安装但版本过低
     if ($Script:InstallOpenClaw -and $Script:NodeVersionLow -and $Script:HasNode) {
         Write-Host ""
         Write-Host "  ⚠ Node.js 版本 $Script:NodeVersion 低于 OpenClaw 推荐版本 (24 或 22.16+)。"
-        Write-Host "    本脚本不会自动升级已安装的 Node。如需升级，请手动操作后重新运行。"
-        Append-Report "⚠ Node 版本过低 ($Script:NodeVersion)，OpenClaw 推荐 24 或 22.16+，未自动升级"
+        if ($DryRun) {
+            Write-Host "    安装计划中不会自动升级 Node。如需升级请手动操作。"
+            Append-Report "⚠ Node 版本过低 ($Script:NodeVersion)，OpenClaw 推荐 24 或 22.16+"
+        } else {
+            $upgrade = Read-Host "  是否升级 Node.js? (y/N)"
+            if ($upgrade -eq "y" -or $upgrade -eq "Y") {
+                $Script:NeedNodeUpgrade = $true
+                Build-InstallQueue
+                Write-Host "  已确认升级 Node.js。"
+                Append-Report "用户确认升级 Node.js ($Script:NodeVersion → LTS)"
+            } else {
+                Write-Host "  将继续安装 OpenClaw，但报告已记录版本风险。"
+                Append-Report "⚠ 用户选择不升级 Node ($Script:NodeVersion)，OpenClaw 可能在低版本下不稳定"
+            }
+        }
     }
 
     if ($DryRun) {
@@ -535,11 +550,15 @@ function Install-Git {
 }
 
 function Install-NodeJS {
-    if ($Script:HasNode) {
+    if ($Script:HasNode -and -not $Script:NeedNodeUpgrade) {
         Write-Log "SKIP" "Node.js: 已安装，跳过"
         return
     }
-    Write-Log "INFO" "正在安装 Node.js LTS..."
+    if ($Script:NeedNodeUpgrade) {
+        Write-Log "INFO" "正在升级 Node.js (当前: $(Get-ToolVersion node))..."
+    } else {
+        Write-Log "INFO" "正在安装 Node.js LTS..."
+    }
     if (-not $Script:HasWinget) {
         Write-Log "FAIL" "Node.js: 需要 WinGet，但系统中未找到"
         Write-Host "        请手动安装 Node.js: https://nodejs.org/"
@@ -552,6 +571,7 @@ function Install-NodeJS {
         if ((Test-Command node)) {
             $Script:HasNode = $true
             $Script:HasNpm = $true
+            $Script:NeedNodeUpgrade = $false
             Write-Log "OK" "Node.js: 安装成功 ($(Get-ToolVersion node))"
             Write-Log "OK" "npm: 附带安装 ($(Get-ToolVersion npm))"
         } else {
@@ -762,9 +782,9 @@ function Show-Summary {
 
         Write-Host ""
         Write-Host "套餐: $Script:PlanName ($Script:PlanPrice) | 售后: $Script:PlanSupport"
-        Write-Host "交付工作流: $Script:PlanWorkflowDesc"
+        Write-Host "新手教程: $(if ($Script:PlanTutorial) { '是' } else { '否' }) | 指定工作流: $Script:PlanWorkflowCount 套"
         Append-Report "套餐: $Script:PlanName ($Script:PlanPrice) | 售后: $Script:PlanSupport"
-        Append-Report "交付工作流: $Script:PlanWorkflowDesc"
+        Append-Report "新手教程: $(if ($Script:PlanTutorial) { '是' } else { '否' }) | 指定工作流: $Script:PlanWorkflowCount 套"
     }
 
     Write-Host ""
@@ -806,8 +826,13 @@ function Show-NextSteps {
     }
 
     Write-Host "  ▸ 交付提醒:"
-    Write-Host "    本套餐需交付: $Script:PlanWorkflowDesc"
-    Write-Host "    请在安装完成后向用户交付对应工作流教程。"
+    if ($Script:PlanTutorial) {
+        Write-Host "    - 新手教程"
+    }
+    if ($Script:PlanWorkflowCount -gt 0) {
+        Write-Host "    - $Script:PlanWorkflowCount 套指定工作流教程"
+    }
+    Write-Host "    请在安装完成后向用户交付对应内容。"
     Write-Host ""
 
     Write-Host "  ▸ 验证安装:"
@@ -821,7 +846,8 @@ function Show-NextSteps {
 
     Append-Report ""
     Append-Report "--- 后续步骤 ---"
-    Append-Report "套餐交付: $Script:PlanWorkflowDesc"
+    Append-Report "新手教程: $(if ($Script:PlanTutorial) { '是' } else { '否' })"
+    Append-Report "指定工作流: $Script:PlanWorkflowCount 套"
     Append-Report "用户需手动完成首次登录配置"
 }
 
@@ -832,7 +858,7 @@ function Show-NextSteps {
 function Main {
     Clear-Host
     Write-Host "=========================================="
-    Write-Host "  AI Coding Installer v1.2.0"
+    Write-Host "  AI Coding Installer v1.3.0"
     Write-Host "  Windows 10/11 安装脚本"
     if ($DryRun) {
         Write-Host "  模式: DRY-RUN (仅预览，不安装)"
