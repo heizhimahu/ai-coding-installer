@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ============================================================
 # AI Coding Installer — macOS / Linux / WSL 一键安装脚本
-# 版本: 1.0.0 (MVP)
+# 版本: 1.1.0
 # 用途: 自动检测环境并安装 Claude Code + OpenClaw 所需依赖
 # ============================================================
 # 安全声明:
@@ -10,6 +10,40 @@
 #   - 所有安装步骤均在用户确认后执行
 #   - 安装报告仅保存在本地用户目录
 # ============================================================
+
+set -euo pipefail
+
+# ============================================================
+# 命令行参数解析
+# ============================================================
+DRY_RUN=false
+CHECK_ONLY=false
+
+for arg in "$@"; do
+    case "$arg" in
+        --dry-run|-d)    DRY_RUN=true ;;
+        --check-only|-c) CHECK_ONLY=true ;;
+        --help|-h)
+            echo "用法: ./install-mac-linux.sh [选项]"
+            echo ""
+            echo "选项:"
+            echo "  --dry-run, -d     只检测环境、显示安装计划，不真正安装"
+            echo "  --check-only, -c  只检测环境并生成报告，不安装任何东西"
+            echo "  --help, -h        显示此帮助信息"
+            exit 0
+            ;;
+        *)
+            echo "未知选项: $arg"
+            echo "使用 --help 查看可用选项"
+            exit 1
+            ;;
+    esac
+done
+
+if [ "$DRY_RUN" = true ] && [ "$CHECK_ONLY" = true ]; then
+    echo "错误: --dry-run 和 --check-only 不能同时使用"
+    exit 1
+fi
 
 # ============================================================
 # 安装命令配置区
@@ -53,6 +87,7 @@ TIMESTAMP=""
 SUCCESS_COUNT=0
 SKIP_COUNT=0
 FAIL_COUNT=0
+MISSING_COUNT=0
 declare -a INSTALL_QUEUE=()    # 待安装项目列表
 declare -a FAIL_LIST=()        # 失败项目列表
 OS_TYPE=""                     # macos / linux / wsl
@@ -73,9 +108,16 @@ HAS_HOMEBREW=false
 
 init_report() {
     TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
+    local title="安装报告"
+    if [ "$CHECK_ONLY" = true ]; then
+        title="[CHECK-ONLY] 环境检测报告"
+    elif [ "$DRY_RUN" = true ]; then
+        title="[DRY-RUN] 安装预览报告"
+    fi
+
     cat > "$REPORT_FILE" << EOF
 ==========================================
-  AI Coding Installer — 安装报告
+  AI Coding Installer — ${title}
 ==========================================
 生成时间: ${TIMESTAMP}
 用户: $(whoami)
@@ -89,15 +131,17 @@ append_report() {
 }
 
 log_step() {
-    local status="$1"  # OK / SKIP / FAIL
+    local status="$1"  # OK / SKIP / FAIL / INFO / MISSING
     local message="$2"
     local time_str
     time_str=$(date '+%H:%M:%S')
     local prefix=""
     case "$status" in
-        OK)   prefix="[${time_str}] ✓"; SUCCESS_COUNT=$((SUCCESS_COUNT + 1)) ;;
-        SKIP) prefix="[${time_str}] ○"; SKIP_COUNT=$((SKIP_COUNT + 1)) ;;
-        FAIL) prefix="[${time_str}] ✗"; FAIL_COUNT=$((FAIL_COUNT + 1)) ;;
+        OK)      prefix="[${time_str}] ✓"; SUCCESS_COUNT=$((SUCCESS_COUNT + 1)) ;;
+        SKIP)    prefix="[${time_str}] ○"; SKIP_COUNT=$((SKIP_COUNT + 1)) ;;
+        FAIL)    prefix="[${time_str}] ✗"; FAIL_COUNT=$((FAIL_COUNT + 1)) ;;
+        INFO)    prefix="[${time_str}] ▶" ;;
+        MISSING) prefix="[${time_str}] ◇"; MISSING_COUNT=$((MISSING_COUNT + 1)) ;;
     esac
     local line="${prefix} ${message}"
     echo "$line"
@@ -126,6 +170,50 @@ get_version() {
     fi
 }
 
+check_node_version() {
+    local node_ver
+    node_ver=$(node --version 2>/dev/null | sed 's/^v//')
+    if [ -z "$node_ver" ]; then
+        return 1
+    fi
+    local major minor
+    major=$(echo "$node_ver" | cut -d. -f1)
+    minor=$(echo "$node_ver" | cut -d. -f2)
+    if [ "$major" -lt 22 ] 2>/dev/null; then
+        log_step "INFO" "Node.js 版本 v${node_ver} 低于推荐版本。OpenClaw 推荐 Node 24 或 Node 22.16+"
+    elif [ "$major" -eq 22 ] && [ "$minor" -lt 16 ] 2>/dev/null; then
+        log_step "INFO" "Node.js 版本 v${node_ver} 低于推荐版本。OpenClaw 推荐 Node 24 或 Node 22.16+"
+    fi
+}
+
+get_install_command() {
+    case "$1" in
+        "Git")
+            case "$PKG_MANAGER" in
+                brew) echo "brew install git" ;;
+                apt) echo "sudo apt-get install -y git" ;;
+                yum) echo "sudo yum install -y git" ;;
+                dnf) echo "sudo dnf install -y git" ;;
+                pacman) echo "sudo pacman -S --noconfirm git" ;;
+                zypper) echo "sudo zypper install -y git" ;;
+                *) echo "通过 $PKG_MANAGER 安装 (具体命令请查看脚本配置区)" ;;
+            esac ;;
+        "Node.js LTS")
+            case "$PKG_MANAGER" in
+                brew) echo "brew install node" ;;
+                apt) echo "curl -fsSL https://deb.nodesource.com/setup_lts.x | sudo -E bash - && sudo apt-get install -y nodejs" ;;
+                dnf) echo "sudo dnf install -y nodejs" ;;
+                yum) echo "sudo yum install -y nodejs" ;;
+                pacman) echo "sudo pacman -S --noconfirm nodejs npm" ;;
+                zypper) echo "sudo zypper install -y nodejs npm" ;;
+                *) echo "通过 $PKG_MANAGER 安装 (具体命令请查看脚本配置区)" ;;
+            esac ;;
+        "pnpm") echo "npm install -g pnpm (备选: corepack)" ;;
+        "Claude Code") echo "curl -fsSL https://claude.ai/install.sh | bash" ;;
+        "OpenClaw") echo "curl -fsSL https://openclaw.ai/install.sh | bash -s -- --no-onboard" ;;
+    esac
+}
+
 # ============================================================
 # 操作系统检测
 # ============================================================
@@ -140,7 +228,6 @@ detect_os() {
             PKG_MANAGER="brew"
             ;;
         Linux)
-            # 检测是否为 WSL
             if grep -qi microsoft /proc/version 2>/dev/null; then
                 OS_TYPE="WSL"
                 OS_NAME="WSL"
@@ -150,15 +237,12 @@ detect_os() {
             else
                 OS_TYPE="Linux"
             fi
-            # 检测 Linux 发行版
             if [ -f /etc/os-release ]; then
-                local distro
+                local distro version
                 distro=$(grep "^ID=" /etc/os-release | cut -d= -f2 | tr -d '"')
-                local version
                 version=$(grep "^VERSION_ID=" /etc/os-release | cut -d= -f2 | tr -d '"')
                 OS_NAME="${distro} ${version}"
             fi
-            # 检测包管理器
             detect_pkg_manager
             ;;
         *)
@@ -210,16 +294,19 @@ detect_tools() {
         log_step "SKIP" "curl: $(get_version curl)"
     else
         HAS_CURL=false
-        # 未安装 curl 时立即尝试安装
-        log_step "FAIL" "curl: 未安装（必需工具）"
-        echo "        正在尝试安装 curl..."
-        install_curl
-        if command_exists curl; then
-            HAS_CURL=true
-            log_step "OK" "curl: 安装成功"
+        if [ "$DRY_RUN" = true ] || [ "$CHECK_ONLY" = true ]; then
+            log_step "MISSING" "curl: 未安装（必需工具）"
         else
-            log_step "FAIL" "curl: 安装失败，无法继续。请手动安装 curl 后重试。"
-            exit 1
+            log_step "MISSING" "curl: 未安装（必需工具）"
+            echo "        正在尝试安装 curl..."
+            install_curl
+            if command_exists curl; then
+                HAS_CURL=true
+                log_step "OK" "curl: 安装成功"
+            else
+                log_step "FAIL" "curl: 安装失败，无法继续。请手动安装 curl 后重试。"
+                exit 1
+            fi
         fi
     fi
 
@@ -229,16 +316,17 @@ detect_tools() {
         log_step "SKIP" "Git: $(get_version git)"
     else
         HAS_GIT=false
-        log_step "FAIL" "Git: 未安装"
+        log_step "MISSING" "Git: 未安装"
     fi
 
     # Node.js
     if command_exists node; then
         HAS_NODE=true
         log_step "SKIP" "Node.js: $(get_version node)"
+        check_node_version
     else
         HAS_NODE=false
-        log_step "FAIL" "Node.js: 未安装"
+        log_step "MISSING" "Node.js: 未安装"
     fi
 
     # npm
@@ -247,7 +335,7 @@ detect_tools() {
         log_step "SKIP" "npm: $(get_version npm)"
     else
         HAS_NPM=false
-        log_step "FAIL" "npm: 未安装"
+        log_step "MISSING" "npm: 未安装"
     fi
 
     # pnpm
@@ -256,7 +344,7 @@ detect_tools() {
         log_step "SKIP" "pnpm: $(get_version pnpm)"
     else
         HAS_PNPM=false
-        log_step "FAIL" "pnpm: 未安装"
+        log_step "MISSING" "pnpm: 未安装"
     fi
 
     # Claude Code
@@ -265,7 +353,7 @@ detect_tools() {
         log_step "SKIP" "Claude Code: $(get_version claude)"
     else
         HAS_CLAUDE=false
-        log_step "FAIL" "Claude Code: 未安装"
+        log_step "MISSING" "Claude Code: 未安装"
     fi
 
     # OpenClaw
@@ -274,7 +362,7 @@ detect_tools() {
         log_step "SKIP" "OpenClaw: $(get_version openclaw)"
     else
         HAS_OPENCLAW=false
-        log_step "FAIL" "OpenClaw: 未安装"
+        log_step "MISSING" "OpenClaw: 未安装"
     fi
 
     # Homebrew (macOS)
@@ -284,7 +372,7 @@ detect_tools() {
             log_step "SKIP" "Homebrew: $(get_version brew)"
         else
             HAS_HOMEBREW=false
-            log_step "FAIL" "Homebrew: 未安装"
+            log_step "MISSING" "Homebrew: 未安装"
         fi
     fi
 }
@@ -310,7 +398,6 @@ install_homebrew() {
     log_step "INFO" "正在安装 Homebrew..."
     echo "        安装 Homebrew（官方脚本）..."
     if /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"; then
-        # 根据架构添加 Homebrew 到 PATH
         if [ "$(uname -m)" = "arm64" ]; then
             eval "$(/opt/homebrew/bin/brew shellenv)" 2>/dev/null || true
         fi
@@ -373,11 +460,9 @@ install_nodejs() {
             $NODE_BREW_CMD && result=0
             ;;
         apt)
-            # 使用 NodeSource 官方仓库
             $NODE_NODESOURCE_CMD && result=0
             ;;
         yum|dnf)
-            # 对于 RHEL/Fedora 系列，尝试 NodeSource 或直接用包管理器
             echo "        尝试通过包管理器安装 Node.js..."
             if [ "$PKG_MANAGER" = "dnf" ]; then
                 sudo dnf module install -y nodejs:18/common 2>/dev/null || \
@@ -426,7 +511,6 @@ install_pnpm() {
         HAS_PNPM=true
         log_step "OK" "pnpm: 安装成功 ($(get_version pnpm))"
     else
-        # 尝试使用 corepack 作为备选
         echo "        npm 全局安装失败，尝试 corepack..."
         if corepack enable 2>/dev/null && corepack prepare pnpm@latest --activate 2>/dev/null; then
             HAS_PNPM=true
@@ -460,7 +544,6 @@ install_claude() {
             echo "      2. 配置 API Key"
             echo "    这些步骤必须由你本人操作，本脚本不会也不能替你完成。"
         else
-            # claude 命令可能不在 PATH 中，等 shell 重启后生效
             HAS_CLAUDE=true
             log_step "OK" "Claude Code: 安装脚本执行完成（可能需要重新打开终端）"
         fi
@@ -480,22 +563,23 @@ install_openclaw() {
         FAIL_LIST+=("OpenClaw")
         return
     fi
-    log_step "INFO" "正在安装 OpenClaw（官方安装脚本）..."
+    log_step "INFO" "正在安装 OpenClaw（官方安装脚本, no-onboard 模式）..."
     if $OPENCLAW_INSTALL_CMD; then
         if command_exists openclaw; then
             HAS_OPENCLAW=true
             log_step "OK" "OpenClaw: 安装成功 ($(get_version openclaw))"
-            echo ""
-            echo "  ⚠ 重要提示: OpenClaw 安装完成后需要进行首次配置。"
-            echo "    请运行 'openclaw' 命令完成初始设置。"
-            echo "    该过程可能涉及:"
-            echo "      1. 登录账号"
-            echo "      2. 配置 Git 集成"
-            echo "    这些步骤必须由你本人操作，本脚本不会也不能替你完成。"
         else
             HAS_OPENCLAW=true
             log_step "OK" "OpenClaw: 安装脚本执行完成（可能需要重新打开终端）"
         fi
+        echo ""
+        echo "  ⚠ 重要提示: OpenClaw 安装完成后需要你本人运行 'openclaw' 完成首次配置。"
+        echo "    该过程涉及:"
+        echo "      1. 完成 onboarding 初始引导"
+        echo "      2. 登录你的 OpenClaw 账号"
+        echo "      3. 配置 API Key"
+        echo "    登录、验证码、密码、API Key 均由你本人输入。"
+        echo "    服务人员不索要、不查看、不记录这些信息。"
     else
         log_step "FAIL" "OpenClaw: 安装脚本执行失败"
         FAIL_LIST+=("OpenClaw")
@@ -508,7 +592,6 @@ install_openclaw() {
 
 build_install_queue() {
     INSTALL_QUEUE=()
-    # 按依赖顺序排列
     [ "$HAS_GIT" = false ] && INSTALL_QUEUE+=("Git")
     [ "$HAS_NODE" = false ] && INSTALL_QUEUE+=("Node.js LTS")
     [ "$HAS_PNPM" = false ] && INSTALL_QUEUE+=("pnpm")
@@ -522,11 +605,19 @@ build_install_queue() {
 
 show_plan_and_confirm() {
     echo ""
-    echo "=========================================="
-    echo "  安装计划"
-    echo "=========================================="
-    append_report ""
-    append_report "--- 安装计划 ---"
+    if [ "$DRY_RUN" = true ]; then
+        echo "=========================================="
+        echo "  [DRY-RUN] 安装预览"
+        echo "=========================================="
+        append_report ""
+        append_report "--- [DRY-RUN] 安装预览 ---"
+    else
+        echo "=========================================="
+        echo "  安装计划"
+        echo "=========================================="
+        append_report ""
+        append_report "--- 安装计划 ---"
+    fi
 
     if [ ${#INSTALL_QUEUE[@]} -eq 0 ]; then
         echo "所有组件已安装，无需操作。"
@@ -540,14 +631,26 @@ show_plan_and_confirm() {
     for step in "${INSTALL_QUEUE[@]}"; do
         echo "  ${i}. ${step}"
         append_report "  ${i}. ${step}"
+        if [ "$DRY_RUN" = true ]; then
+            local cmd
+            cmd=$(get_install_command "$step")
+            echo "      → ${cmd}"
+            append_report "      → ${cmd}"
+        fi
         i=$((i + 1))
     done
+
+    if [ "$DRY_RUN" = true ]; then
+        echo ""
+        echo "[DRY-RUN] 以上为预览，未执行任何安装操作。"
+        append_report "[DRY-RUN] 以上为预览，未执行任何安装操作。"
+        return 1
+    fi
 
     echo ""
     echo "安装报告将保存到: ${REPORT_FILE}"
     echo ""
 
-    # 请求用户确认
     read -r -p "确认开始安装? (y/N): " CONFIRM
     if [ "$CONFIRM" != "y" ] && [ "$CONFIRM" != "Y" ]; then
         echo "已取消安装。"
@@ -586,25 +689,48 @@ execute_install() {
 
 show_summary() {
     echo ""
-    echo "=========================================="
-    echo "  安装摘要"
-    echo "=========================================="
-    append_report ""
-    append_report "--- 安装摘要 ---"
-    local summary="成功: ${SUCCESS_COUNT}, 跳过: ${SKIP_COUNT}, 失败: ${FAIL_COUNT}"
-    echo "$summary"
-    append_report "$summary"
+    if [ "$CHECK_ONLY" = true ]; then
+        echo "=========================================="
+        echo "  环境检测摘要"
+        echo "=========================================="
+        append_report ""
+        append_report "--- 环境检测摘要 ---"
+        local summary="已就绪: ${SUCCESS_COUNT}, 缺失: ${MISSING_COUNT}, 失败: ${FAIL_COUNT}"
+        echo "$summary"
+        append_report "$summary"
+    elif [ "$DRY_RUN" = true ]; then
+        echo "=========================================="
+        echo "  安装预览摘要"
+        echo "=========================================="
+        append_report ""
+        append_report "--- 安装预览摘要 ---"
+        local summary="待安装: ${#INSTALL_QUEUE[@]}, 已就绪: ${SKIP_COUNT}, 缺失: ${MISSING_COUNT}"
+        echo "$summary"
+        append_report "$summary"
+        echo ""
+        echo "[DRY-RUN] 未执行任何安装操作。"
+        append_report "[DRY-RUN] 未执行任何安装操作。"
+    else
+        echo "=========================================="
+        echo "  安装摘要"
+        echo "=========================================="
+        append_report ""
+        append_report "--- 安装摘要 ---"
+        local summary="成功: ${SUCCESS_COUNT}, 跳过: ${SKIP_COUNT}, 缺失: ${MISSING_COUNT}, 失败: ${FAIL_COUNT}"
+        echo "$summary"
+        append_report "$summary"
 
-    if [ ${#FAIL_LIST[@]} -gt 0 ]; then
-        echo ""
-        echo "以下组件安装失败:"
-        append_report "失败组件:"
-        for item in "${FAIL_LIST[@]}"; do
-            echo "  - ${item}"
-            append_report "  - ${item}"
-        done
-        echo ""
-        echo "请手动安装失败的组件后重新运行本脚本。"
+        if [ ${#FAIL_LIST[@]} -gt 0 ]; then
+            echo ""
+            echo "以下组件安装失败:"
+            append_report "失败组件:"
+            for item in "${FAIL_LIST[@]}"; do
+                echo "  - ${item}"
+                append_report "  - ${item}"
+            done
+            echo ""
+            echo "请手动安装失败的组件后重新运行本脚本。"
+        fi
     fi
 
     echo ""
@@ -619,6 +745,10 @@ show_summary() {
 # ============================================================
 
 show_next_steps() {
+    if [ "$CHECK_ONLY" = true ]; then
+        return
+    fi
+
     echo ""
     echo "=========================================="
     echo "  后续步骤"
@@ -634,21 +764,29 @@ show_next_steps() {
     echo ""
     echo "  2. OpenClaw 首次配置:"
     echo "     运行: openclaw"
-    echo "     - 按提示完成账号登录和配置"
+    echo "     - 完成 onboarding 初始引导"
+    echo "     - 登录 OpenClaw 账号"
+    echo "     - 配置 API Key"
+    echo "    登录、验证码、密码、API Key 均由你本人输入。"
+    echo "    服务人员不索要、不查看、不记录这些信息。"
     echo ""
-    echo "  3. 验证安装:"
-    echo "     git --version"
-    echo "     node --version"
-    echo "     npm --version"
-    echo "     pnpm --version"
-    echo "     claude --version"
-    echo "     openclaw --version"
-    echo ""
-    echo "  4. 如果某个命令提示 'command not found':"
-    echo "     - 尝试关闭并重新打开终端"
-    echo "     - 或运行: source ~/.bashrc (Linux)"
-    echo "     - 或运行: source ~/.zshrc (macOS)"
-    echo ""
+
+    if [ "$DRY_RUN" = false ]; then
+        echo "  3. 验证安装:"
+        echo "     git --version"
+        echo "     node --version"
+        echo "     npm --version"
+        echo "     pnpm --version"
+        echo "     claude --version"
+        echo "     openclaw --version"
+        echo ""
+        echo "  4. 如果某个命令提示 'command not found':"
+        echo "     - 尝试关闭并重新打开终端"
+        echo "     - 或运行: source ~/.bashrc (Linux)"
+        echo "     - 或运行: source ~/.zshrc (macOS)"
+        echo ""
+    fi
+
     append_report ""
     append_report "--- 后续步骤 ---"
     append_report "用户需手动完成 Claude Code 和 OpenClaw 的首次登录配置"
@@ -661,27 +799,47 @@ show_next_steps() {
 main() {
     clear 2>/dev/null || true
     echo "=========================================="
-    echo "  AI Coding Installer v1.0.0"
+    echo "  AI Coding Installer v1.1.0"
     echo "  macOS / Linux / WSL 安装脚本"
+    if [ "$DRY_RUN" = true ]; then
+        echo "  模式: DRY-RUN (仅预览，不安装)"
+    elif [ "$CHECK_ONLY" = true ]; then
+        echo "  模式: CHECK-ONLY (仅检测环境)"
+    fi
     echo "=========================================="
     echo ""
-    echo "本脚本将检测你的开发环境，并安装以下工具:"
-    echo "  - Git"
-    echo "  - Node.js LTS"
-    echo "  - pnpm"
-    echo "  - Claude Code"
-    echo "  - OpenClaw"
-    echo ""
-    echo "安全声明: 本脚本不会读取或保存你的密码/API Key/Token。"
-    echo "登录和配置步骤必须由你本人完成。"
+    if [ "$CHECK_ONLY" = true ]; then
+        echo "本脚本将检测你的开发环境并生成报告。"
+        echo "不会安装任何组件。"
+    elif [ "$DRY_RUN" = true ]; then
+        echo "[DRY-RUN] 本脚本将检测环境并展示安装预览。"
+        echo "不会执行任何安装操作。"
+    else
+        echo "本脚本将检测你的开发环境，并安装以下工具:"
+        echo "  - Git"
+        echo "  - Node.js LTS"
+        echo "  - pnpm"
+        echo "  - Claude Code"
+        echo "  - OpenClaw"
+        echo ""
+        echo "安全声明: 本脚本不会读取或保存你的密码/API Key/Token。"
+        echo "登录和配置步骤必须由你本人完成。"
+    fi
     echo ""
 
     init_report
     detect_os
     detect_tools
+
+    if [ "$CHECK_ONLY" = true ]; then
+        show_summary
+        exit 0
+    fi
+
     build_install_queue
-    show_plan_and_confirm
-    execute_install
+    if show_plan_and_confirm; then
+        execute_install
+    fi
     show_summary
     show_next_steps
 }

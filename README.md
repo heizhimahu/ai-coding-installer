@@ -1,8 +1,8 @@
-# AI Coding Installer v1.0.0 (MVP)
+# AI Coding Installer v1.1.0
 
 为校园学生远程装机场景设计的 Claude Code + OpenClaw 自动化安装工具。
 
-**版本**: 1.0.0 MVP，仅包含核心安装器，不含 GUI / 套餐系统 / 自动更新。
+**版本**: 1.1.0，含 dry-run / check-only 模式，不含 GUI / 套餐系统 / 自动更新。
 
 ## 项目结构
 
@@ -18,9 +18,12 @@ ai-coding-installer/
 
 - 自动检测操作系统类型、版本、CPU 架构
 - 检测已有开发工具：Git / Node.js / npm / pnpm / Claude Code / OpenClaw
+- Node.js 版本检测：低于 22.16 时提示 OpenClaw 兼容性警告
 - 跳过已安装的软件，不重复安装
 - 安装前展示完整计划，要求用户确认后才执行
-- 每步成功/失败均写入本地报告 `~/ai-coding-install-report.txt`
+- dry-run 模式：仅检测环境 + 展示安装命令预览，不真正安装
+- check-only 模式：仅检测环境并生成报告，不安装任何东西
+- 每步成功/失败/缺失均写入本地报告 `~/ai-coding-install-report.txt`
 - 登录、验证码、API Key 等步骤仅提示用户本人操作，脚本绝不触碰
 
 ## 覆盖的安装项
@@ -42,8 +45,14 @@ ai-coding-installer/
 # 2. 进入项目目录
 cd D:\ai-coding-installer
 
-# 3. 运行安装脚本（可能需要先设置执行策略）
+# 3. 先跑 dry-run 预览（强烈建议）
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
+.\install-windows.ps1 -DryRun
+
+# 4. 仅检测环境（不显示安装计划）
+.\install-windows.ps1 -CheckOnly
+
+# 5. 确认无误后正式安装
 .\install-windows.ps1
 ```
 
@@ -54,26 +63,45 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
 # 2. 进入项目目录
 cd /path/to/ai-coding-installer
 
-# 3. 运行安装脚本
+# 3. 先跑 dry-run 预览（强烈建议）
 chmod +x install-mac-linux.sh
+./install-mac-linux.sh --dry-run
+
+# 4. 仅检测环境（不显示安装计划）
+./install-mac-linux.sh --check-only
+
+# 5. 确认无误后正式安装
 ./install-mac-linux.sh
 ```
 
 ### Linux (Ubuntu / Debian / Fedora / Arch 等)
 
 ```bash
-# 在终端中运行
 chmod +x install-mac-linux.sh
-./install-mac-linux.sh
+./install-mac-linux.sh --dry-run    # 先预览
+./install-mac-linux.sh --check-only # 仅检测
+./install-mac-linux.sh              # 正式安装
 ```
 
 ### WSL
 
 ```bash
-# 在 WSL 终端中运行
 chmod +x install-mac-linux.sh
-./install-mac-linux.sh
+./install-mac-linux.sh --dry-run    # 先预览
+./install-mac-linux.sh --check-only # 仅检测
+./install-mac-linux.sh              # 正式安装
 ```
+
+## ⚠ 重要：真实服务前必须先跑 dry-run
+
+在远程协助用户正式安装之前，务必先使用 `--dry-run` (或 `-DryRun`) 预览：
+
+- 确认检测到的操作系统和架构是否正确
+- 确认哪些组件已安装、哪些缺失、哪些需要更新版本
+- 确认安装命令是否匹配用户的系统环境
+- 报告文件名不变，通过报告标题的 `[DRY-RUN]` / `[CHECK-ONLY]` 标记区分
+
+dry-run 和 check-only 都不会修改系统，可以安全地在用户机器上反复运行。
 
 ## 安装报告
 
@@ -103,7 +131,7 @@ chmod +x install-mac-linux.sh
 
 详见 [service-disclaimer.md](./service-disclaimer.md)。
 
-## 已知限制 (MVP)
+## 已知限制 (v1.1.0)
 
 - Linux 下部分发行版（Alpine、Gentoo）未完整测试
 - winget 在较旧 Windows 10（< 1809）上不可用，需手动安装
