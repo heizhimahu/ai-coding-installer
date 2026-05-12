@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # ============================================================
 # AI Coding Installer — macOS / Linux / WSL 一键安装脚本
-# 版本: 1.1.0
-# 用途: 自动检测环境并安装 Claude Code + OpenClaw 所需依赖
+# 版本: 1.2.0
+# 用途: 三档服务套餐安装 Claude Code + OpenClaw 所需依赖
 # ============================================================
 # 安全声明:
 #   - 本脚本不读取、不保存、不上传任何密码/API Key/Token/Cookie
@@ -27,8 +27,8 @@ for arg in "$@"; do
             echo "用法: ./install-mac-linux.sh [选项]"
             echo ""
             echo "选项:"
-            echo "  --dry-run, -d     只检测环境、显示安装计划，不真正安装"
-            echo "  --check-only, -c  只检测环境并生成报告，不安装任何东西"
+            echo "  --dry-run, -d     只检测环境、选择套餐、显示安装预览，不真正安装"
+            echo "  --check-only, -c  只检测环境并生成报告，不进入套餐菜单"
             echo "  --help, -h        显示此帮助信息"
             exit 0
             ;;
@@ -47,18 +47,14 @@ fi
 
 # ============================================================
 # 安装命令配置区
-# 以下所有安装命令集中在此，方便后续更新版本号或切换安装源
 # ============================================================
 
-# --- Claude Code (官方安装脚本) ---
 CLAUDE_INSTALL_URL="https://claude.ai/install.sh"
 CLAUDE_INSTALL_CMD="curl -fsSL ${CLAUDE_INSTALL_URL} | bash"
 
-# --- OpenClaw (官方安装脚本，跳过交互式引导) ---
 OPENCLAW_INSTALL_URL="https://openclaw.ai/install.sh"
 OPENCLAW_INSTALL_CMD="curl -fsSL ${OPENCLAW_INSTALL_URL} | bash -s -- --no-onboard"
 
-# --- Git ---
 GIT_BREW_CMD="brew install git"
 GIT_APT_CMD="sudo apt-get update -qq && sudo apt-get install -y git"
 GIT_YUM_CMD="sudo yum install -y git"
@@ -66,15 +62,12 @@ GIT_DNF_CMD="sudo dnf install -y git"
 GIT_PACMAN_CMD="sudo pacman -S --noconfirm git"
 GIT_ZYPPER_CMD="sudo zypper install -y git"
 
-# --- Node.js LTS ---
 NODE_BREW_CMD="brew install node"
 NODE_NODESOURCE_URL="https://deb.nodesource.com/setup_lts.x"
 NODE_NODESOURCE_CMD="curl -fsSL ${NODE_NODESOURCE_URL} | sudo -E bash - && sudo apt-get install -y nodejs"
 
-# --- pnpm ---
 PNPM_NPM_CMD="npm install -g pnpm"
 
-# --- 必要工具 ---
 CURL_INSTALL_APT="sudo apt-get install -y curl"
 CURL_INSTALL_YUM="sudo yum install -y curl"
 CURL_INSTALL_DNF="sudo dnf install -y curl"
@@ -88,11 +81,11 @@ SUCCESS_COUNT=0
 SKIP_COUNT=0
 FAIL_COUNT=0
 MISSING_COUNT=0
-declare -a INSTALL_QUEUE=()    # 待安装项目列表
-declare -a FAIL_LIST=()        # 失败项目列表
-OS_TYPE=""                     # macos / linux / wsl
-OS_NAME=""                     # 发行版名称
-PKG_MANAGER=""                # apt / yum / dnf / brew / pacman / zypper / unknown
+declare -a INSTALL_QUEUE=()
+declare -a FAIL_LIST=()
+OS_TYPE=""
+OS_NAME=""
+PKG_MANAGER=""
 HAS_CURL=false
 HAS_GIT=false
 HAS_NODE=false
@@ -101,6 +94,19 @@ HAS_PNPM=false
 HAS_CLAUDE=false
 HAS_OPENCLAW=false
 HAS_HOMEBREW=false
+NODE_VERSION_LOW=false
+NODE_VERSION=""
+
+# 套餐选择
+PLAN_CHOICE=0
+PLAN_NAME=""
+PLAN_PRICE=""
+PLAN_SUPPORT=""
+PLAN_WORKFLOW_DESC=""
+PLAN_WORKFLOW_COUNT=0
+INSTALL_CLAUDE=false
+INSTALL_OPENCLAW=false
+TOOL_CHOICE_NAME=""
 
 # ============================================================
 # 工具函数
@@ -131,7 +137,7 @@ append_report() {
 }
 
 log_step() {
-    local status="$1"  # OK / SKIP / FAIL / INFO / MISSING
+    local status="$1"
     local message="$2"
     local time_str
     time_str=$(date '+%H:%M:%S')
@@ -142,6 +148,7 @@ log_step() {
         FAIL)    prefix="[${time_str}] ✗"; FAIL_COUNT=$((FAIL_COUNT + 1)) ;;
         INFO)    prefix="[${time_str}] ▶" ;;
         MISSING) prefix="[${time_str}] ◇"; MISSING_COUNT=$((MISSING_COUNT + 1)) ;;
+        WARN)    prefix="[${time_str}] ⚠" ;;
     esac
     local line="${prefix} ${message}"
     echo "$line"
@@ -176,13 +183,16 @@ check_node_version() {
     if [ -z "$node_ver" ]; then
         return 1
     fi
+    NODE_VERSION="v${node_ver}"
     local major minor
     major=$(echo "$node_ver" | cut -d. -f1)
     minor=$(echo "$node_ver" | cut -d. -f2)
     if [ "$major" -lt 22 ] 2>/dev/null; then
-        log_step "INFO" "Node.js 版本 v${node_ver} 低于推荐版本。OpenClaw 推荐 Node 24 或 Node 22.16+"
+        NODE_VERSION_LOW=true
+        log_step "WARN" "Node.js 版本 ${NODE_VERSION} 低于推荐版本。OpenClaw 推荐 Node 24 或 Node 22.16+"
     elif [ "$major" -eq 22 ] && [ "$minor" -lt 16 ] 2>/dev/null; then
-        log_step "INFO" "Node.js 版本 v${node_ver} 低于推荐版本。OpenClaw 推荐 Node 24 或 Node 22.16+"
+        NODE_VERSION_LOW=true
+        log_step "WARN" "Node.js 版本 ${NODE_VERSION} 低于推荐版本。OpenClaw 推荐 Node 24 或 Node 22.16+"
     fi
 }
 
@@ -310,7 +320,6 @@ detect_tools() {
         fi
     fi
 
-    # Git
     if command_exists git; then
         HAS_GIT=true
         log_step "SKIP" "Git: $(get_version git)"
@@ -319,7 +328,6 @@ detect_tools() {
         log_step "MISSING" "Git: 未安装"
     fi
 
-    # Node.js
     if command_exists node; then
         HAS_NODE=true
         log_step "SKIP" "Node.js: $(get_version node)"
@@ -329,7 +337,6 @@ detect_tools() {
         log_step "MISSING" "Node.js: 未安装"
     fi
 
-    # npm
     if command_exists npm; then
         HAS_NPM=true
         log_step "SKIP" "npm: $(get_version npm)"
@@ -338,7 +345,6 @@ detect_tools() {
         log_step "MISSING" "npm: 未安装"
     fi
 
-    # pnpm
     if command_exists pnpm; then
         HAS_PNPM=true
         log_step "SKIP" "pnpm: $(get_version pnpm)"
@@ -347,7 +353,6 @@ detect_tools() {
         log_step "MISSING" "pnpm: 未安装"
     fi
 
-    # Claude Code
     if command_exists claude; then
         HAS_CLAUDE=true
         log_step "SKIP" "Claude Code: $(get_version claude)"
@@ -356,7 +361,6 @@ detect_tools() {
         log_step "MISSING" "Claude Code: 未安装"
     fi
 
-    # OpenClaw
     if command_exists openclaw; then
         HAS_OPENCLAW=true
         log_step "SKIP" "OpenClaw: $(get_version openclaw)"
@@ -365,7 +369,6 @@ detect_tools() {
         log_step "MISSING" "OpenClaw: 未安装"
     fi
 
-    # Homebrew (macOS)
     if [ "$OS_TYPE" = "macOS" ] || [ "$PKG_MANAGER" = "brew" ]; then
         if command_exists brew; then
             HAS_HOMEBREW=true
@@ -374,6 +377,237 @@ detect_tools() {
             HAS_HOMEBREW=false
             log_step "MISSING" "Homebrew: 未安装"
         fi
+    fi
+}
+
+# ============================================================
+# 套餐菜单
+# ============================================================
+
+select_plan() {
+    echo ""
+    echo "=========================================="
+    echo "  选择服务套餐"
+    echo "=========================================="
+    echo ""
+    echo "  1. 基础上手包  ¥58"
+    echo "     ▸ 安装: Claude Code 或 OpenClaw (二选一)"
+    echo "     ▸ 交付: 新手教程"
+    echo "     ▸ 售后: 7 天"
+    echo ""
+    echo "  2. 进阶工作流包  ¥98"
+    echo "     ▸ 安装: Claude Code 或 OpenClaw (二选一)"
+    echo "     ▸ 交付: 新手教程 + 5 套指定工作流教程"
+    echo "     ▸ 售后: 14 天"
+    echo ""
+    echo "  3. 全套效率包  ¥158/¥198"
+    echo "     ▸ 安装: Claude Code + OpenClaw (两个都装)"
+    echo "     ▸ 交付: 新手教程 + 10 套指定工作流教程"
+    echo "     ▸ 售后: 14 天"
+    echo ""
+    echo "  4. 只检测环境 (不安装任何软件)"
+    echo ""
+    echo "  5. 退出"
+    echo ""
+    echo "=========================================="
+
+    if [ "$DRY_RUN" = true ]; then
+        echo "  [DRY-RUN 模式: 仅预览，不真正安装]"
+        echo ""
+    fi
+
+    while true; do
+        read -r -p "请输入选项 (1/2/3/4/5): " choice
+        case "$choice" in
+            1)
+                PLAN_CHOICE=1
+                PLAN_NAME="基础上手包"
+                PLAN_PRICE="¥58"
+                PLAN_SUPPORT="7 天"
+                PLAN_WORKFLOW_DESC="新手教程"
+                PLAN_WORKFLOW_COUNT=1
+                select_tool
+                return
+                ;;
+            2)
+                PLAN_CHOICE=2
+                PLAN_NAME="进阶工作流包"
+                PLAN_PRICE="¥98"
+                PLAN_SUPPORT="14 天"
+                PLAN_WORKFLOW_DESC="新手教程 + 5 套指定工作流教程"
+                PLAN_WORKFLOW_COUNT=6
+                select_tool
+                return
+                ;;
+            3)
+                PLAN_CHOICE=3
+                PLAN_NAME="全套效率包"
+                PLAN_PRICE="¥158/¥198"
+                PLAN_SUPPORT="14 天"
+                PLAN_WORKFLOW_DESC="新手教程 + 10 套指定工作流教程"
+                PLAN_WORKFLOW_COUNT=11
+                INSTALL_CLAUDE=true
+                INSTALL_OPENCLAW=true
+                TOOL_CHOICE_NAME="Claude Code + OpenClaw"
+                return
+                ;;
+            4)
+                PLAN_CHOICE=4
+                PLAN_NAME="仅环境检测"
+                PLAN_PRICE="-"
+                PLAN_SUPPORT="-"
+                PLAN_WORKFLOW_DESC="-"
+                PLAN_WORKFLOW_COUNT=0
+                return
+                ;;
+            5)
+                echo "已退出。"
+                append_report "用户退出"
+                exit 0
+                ;;
+            *)
+                echo "无效选项，请输入 1-5"
+                ;;
+        esac
+    done
+}
+
+select_tool() {
+    echo ""
+    echo "  请选择要安装的工具:"
+    echo "  A. Claude Code"
+    echo "  B. OpenClaw"
+    echo ""
+
+    while true; do
+        read -r -p "请输入 (A/B): " tool
+        case "$(echo "$tool" | tr '[:lower:]' '[:upper:]')" in
+            A)
+                INSTALL_CLAUDE=true
+                INSTALL_OPENCLAW=false
+                TOOL_CHOICE_NAME="Claude Code"
+                return
+                ;;
+            B)
+                INSTALL_CLAUDE=false
+                INSTALL_OPENCLAW=true
+                TOOL_CHOICE_NAME="OpenClaw"
+                return
+                ;;
+            *)
+                echo "无效选项，请输入 A 或 B"
+                ;;
+        esac
+    done
+}
+
+log_plan_info() {
+    append_report ""
+    append_report "--- 套餐信息 ---"
+    append_report "套餐名称: ${PLAN_NAME}"
+    append_report "价格: ${PLAN_PRICE}"
+    append_report "售后: ${PLAN_SUPPORT}"
+    append_report "选择安装: ${TOOL_CHOICE_NAME}"
+    append_report "需交付工作流: ${PLAN_WORKFLOW_DESC}"
+}
+
+# ============================================================
+# 安装队列
+# ============================================================
+
+build_install_queue() {
+    INSTALL_QUEUE=()
+
+    [ "$HAS_GIT" = false ] && INSTALL_QUEUE+=("Git")
+    [ "$HAS_NODE" = false ] && INSTALL_QUEUE+=("Node.js LTS")
+    [ "$HAS_PNPM" = false ] && INSTALL_QUEUE+=("pnpm")
+
+    if [ "$INSTALL_CLAUDE" = true ] && [ "$HAS_CLAUDE" = false ]; then
+        INSTALL_QUEUE+=("Claude Code")
+    fi
+    if [ "$INSTALL_OPENCLAW" = true ] && [ "$HAS_OPENCLAW" = false ]; then
+        INSTALL_QUEUE+=("OpenClaw")
+    fi
+}
+
+# ============================================================
+# 安装计划展示
+# ============================================================
+
+show_plan_and_confirm() {
+    echo ""
+
+    if [ "$DRY_RUN" = true ]; then
+        echo "=========================================="
+        echo "  [DRY-RUN] 安装预览"
+        echo "=========================================="
+        append_report ""
+        append_report "--- [DRY-RUN] 安装预览 ---"
+    else
+        echo "=========================================="
+        echo "  安装计划"
+        echo "=========================================="
+        append_report ""
+        append_report "--- 安装计划 ---"
+    fi
+
+    echo "套餐: ${PLAN_NAME} (${PLAN_PRICE})"
+    echo "售后: ${PLAN_SUPPORT}"
+    echo "安装工具: ${TOOL_CHOICE_NAME}"
+    echo "交付工作流: ${PLAN_WORKFLOW_DESC}"
+    append_report "套餐: ${PLAN_NAME} (${PLAN_PRICE})"
+    append_report "售后: ${PLAN_SUPPORT}"
+    append_report "安装工具: ${TOOL_CHOICE_NAME}"
+    append_report "交付工作流: ${PLAN_WORKFLOW_DESC}"
+
+    echo ""
+
+    if [ ${#INSTALL_QUEUE[@]} -eq 0 ]; then
+        echo "所有组件已安装，无需操作。"
+        append_report "所有组件已安装，无需操作。"
+        return 0
+    fi
+
+    echo "将按以下顺序安装 ${#INSTALL_QUEUE[@]} 个组件:"
+    append_report "将安装 ${#INSTALL_QUEUE[@]} 个组件:"
+    local i=1
+    for step in "${INSTALL_QUEUE[@]}"; do
+        echo "  ${i}. ${step}"
+        append_report "  ${i}. ${step}"
+        if [ "$DRY_RUN" = true ]; then
+            local cmd
+            cmd=$(get_install_command "$step")
+            echo "      → ${cmd}"
+            append_report "      → ${cmd}"
+        fi
+        i=$((i + 1))
+    done
+
+    # Node 版本警告：选了 OpenClaw 且 Node 版本过低
+    if [ "$INSTALL_OPENCLAW" = true ] && [ "$NODE_VERSION_LOW" = true ] && [ "$HAS_NODE" = true ]; then
+        echo ""
+        echo "  ⚠ Node.js 版本 ${NODE_VERSION} 低于 OpenClaw 推荐版本 (24 或 22.16+)。"
+        echo "    本脚本不会自动升级已安装的 Node。如需升级，请手动操作后重新运行。"
+        append_report "⚠ Node 版本过低 (${NODE_VERSION})，OpenClaw 推荐 24 或 22.16+，未自动升级"
+    fi
+
+    if [ "$DRY_RUN" = true ]; then
+        echo ""
+        echo "[DRY-RUN] 以上为预览，未执行任何安装操作。"
+        echo "安装报告已保存到: ${REPORT_FILE}"
+        append_report "[DRY-RUN] 以上为预览，未执行任何安装操作。"
+        return 1
+    fi
+
+    echo ""
+    echo "安装报告将保存到: ${REPORT_FILE}"
+    echo ""
+
+    read -r -p "确认开始安装? (y/N): " CONFIRM
+    if [ "$CONFIRM" != "y" ] && [ "$CONFIRM" != "Y" ]; then
+        echo "已取消安装。"
+        append_report "用户取消安装"
+        exit 0
     fi
 }
 
@@ -537,16 +771,14 @@ install_claude() {
         if command_exists claude; then
             HAS_CLAUDE=true
             log_step "OK" "Claude Code: 安装成功 ($(get_version claude))"
-            echo ""
-            echo "  ⚠ 重要提示: Claude Code 安装完成后需要进行首次设置。"
-            echo "    请运行 'claude' 命令，按提示完成:"
-            echo "      1. 登录 Anthropic 账号"
-            echo "      2. 配置 API Key"
-            echo "    这些步骤必须由你本人操作，本脚本不会也不能替你完成。"
         else
             HAS_CLAUDE=true
             log_step "OK" "Claude Code: 安装脚本执行完成（可能需要重新打开终端）"
         fi
+        echo ""
+        echo "  ⚠ Claude Code 安装完成后需要你本人运行 'claude' 完成首次设置。"
+        echo "    登录、验证码、API Key 均由你本人输入。"
+        echo "    服务人员不索要、不查看、不记录这些信息。"
     else
         log_step "FAIL" "Claude Code: 安装脚本执行失败"
         FAIL_LIST+=("Claude Code")
@@ -573,89 +805,13 @@ install_openclaw() {
             log_step "OK" "OpenClaw: 安装脚本执行完成（可能需要重新打开终端）"
         fi
         echo ""
-        echo "  ⚠ 重要提示: OpenClaw 安装完成后需要你本人运行 'openclaw' 完成首次配置。"
-        echo "    该过程涉及:"
-        echo "      1. 完成 onboarding 初始引导"
-        echo "      2. 登录你的 OpenClaw 账号"
-        echo "      3. 配置 API Key"
+        echo "  ⚠ OpenClaw 安装完成后需要你本人运行 'openclaw' 完成首次配置。"
+        echo "    该过程涉及: onboarding 引导、登录账号、配置 API Key。"
         echo "    登录、验证码、密码、API Key 均由你本人输入。"
         echo "    服务人员不索要、不查看、不记录这些信息。"
     else
         log_step "FAIL" "OpenClaw: 安装脚本执行失败"
         FAIL_LIST+=("OpenClaw")
-    fi
-}
-
-# ============================================================
-# 构建安装队列
-# ============================================================
-
-build_install_queue() {
-    INSTALL_QUEUE=()
-    [ "$HAS_GIT" = false ] && INSTALL_QUEUE+=("Git")
-    [ "$HAS_NODE" = false ] && INSTALL_QUEUE+=("Node.js LTS")
-    [ "$HAS_PNPM" = false ] && INSTALL_QUEUE+=("pnpm")
-    [ "$HAS_CLAUDE" = false ] && INSTALL_QUEUE+=("Claude Code")
-    [ "$HAS_OPENCLAW" = false ] && INSTALL_QUEUE+=("OpenClaw")
-}
-
-# ============================================================
-# 展示安装计划并请求确认
-# ============================================================
-
-show_plan_and_confirm() {
-    echo ""
-    if [ "$DRY_RUN" = true ]; then
-        echo "=========================================="
-        echo "  [DRY-RUN] 安装预览"
-        echo "=========================================="
-        append_report ""
-        append_report "--- [DRY-RUN] 安装预览 ---"
-    else
-        echo "=========================================="
-        echo "  安装计划"
-        echo "=========================================="
-        append_report ""
-        append_report "--- 安装计划 ---"
-    fi
-
-    if [ ${#INSTALL_QUEUE[@]} -eq 0 ]; then
-        echo "所有组件已安装，无需操作。"
-        append_report "所有组件已安装，无需操作。"
-        return 0
-    fi
-
-    echo "将按以下顺序安装 ${#INSTALL_QUEUE[@]} 个组件:"
-    append_report "将安装 ${#INSTALL_QUEUE[@]} 个组件:"
-    local i=1
-    for step in "${INSTALL_QUEUE[@]}"; do
-        echo "  ${i}. ${step}"
-        append_report "  ${i}. ${step}"
-        if [ "$DRY_RUN" = true ]; then
-            local cmd
-            cmd=$(get_install_command "$step")
-            echo "      → ${cmd}"
-            append_report "      → ${cmd}"
-        fi
-        i=$((i + 1))
-    done
-
-    if [ "$DRY_RUN" = true ]; then
-        echo ""
-        echo "[DRY-RUN] 以上为预览，未执行任何安装操作。"
-        append_report "[DRY-RUN] 以上为预览，未执行任何安装操作。"
-        return 1
-    fi
-
-    echo ""
-    echo "安装报告将保存到: ${REPORT_FILE}"
-    echo ""
-
-    read -r -p "确认开始安装? (y/N): " CONFIRM
-    if [ "$CONFIRM" != "y" ] && [ "$CONFIRM" != "Y" ]; then
-        echo "已取消安装。"
-        append_report "用户取消安装"
-        exit 0
     fi
 }
 
@@ -689,13 +845,14 @@ execute_install() {
 
 show_summary() {
     echo ""
-    if [ "$CHECK_ONLY" = true ]; then
+
+    if [ "$PLAN_CHOICE" -eq 4 ]; then
         echo "=========================================="
         echo "  环境检测摘要"
         echo "=========================================="
         append_report ""
         append_report "--- 环境检测摘要 ---"
-        local summary="已就绪: ${SUCCESS_COUNT}, 缺失: ${MISSING_COUNT}, 失败: ${FAIL_COUNT}"
+        local summary="已就绪: ${SKIP_COUNT}, 缺失: ${MISSING_COUNT}"
         echo "$summary"
         append_report "$summary"
     elif [ "$DRY_RUN" = true ]; then
@@ -704,7 +861,7 @@ show_summary() {
         echo "=========================================="
         append_report ""
         append_report "--- 安装预览摘要 ---"
-        local summary="待安装: ${#INSTALL_QUEUE[@]}, 已就绪: ${SKIP_COUNT}, 缺失: ${MISSING_COUNT}"
+        local summary="套餐: ${PLAN_NAME}, 待安装: ${#INSTALL_QUEUE[@]}, 已就绪: ${SKIP_COUNT}, 缺失: ${MISSING_COUNT}"
         echo "$summary"
         append_report "$summary"
         echo ""
@@ -731,6 +888,12 @@ show_summary() {
             echo ""
             echo "请手动安装失败的组件后重新运行本脚本。"
         fi
+
+        echo ""
+        echo "套餐: ${PLAN_NAME} (${PLAN_PRICE}) | 售后: ${PLAN_SUPPORT}"
+        echo "交付工作流: ${PLAN_WORKFLOW_DESC}"
+        append_report "套餐: ${PLAN_NAME} (${PLAN_PRICE}) | 售后: ${PLAN_SUPPORT}"
+        append_report "交付工作流: ${PLAN_WORKFLOW_DESC}"
     fi
 
     echo ""
@@ -741,11 +904,11 @@ show_summary() {
 }
 
 # ============================================================
-# 后续步骤提示
+# 后续步骤
 # ============================================================
 
 show_next_steps() {
-    if [ "$CHECK_ONLY" = true ]; then
+    if [ "$PLAN_CHOICE" -eq 4 ] || [ "$DRY_RUN" = true ]; then
         return
     fi
 
@@ -754,42 +917,43 @@ show_next_steps() {
     echo "  后续步骤"
     echo "=========================================="
     echo ""
-    echo "  以下步骤需要你亲自操作，本脚本不会也不能自动完成:"
-    echo ""
-    echo "  1. Claude Code 首次设置:"
-    echo "     运行: claude"
-    echo "     - 登录 Anthropic 账号"
-    echo "     - 输入 API Key"
-    echo "     - 按提示完成初始化"
-    echo ""
-    echo "  2. OpenClaw 首次配置:"
-    echo "     运行: openclaw"
-    echo "     - 完成 onboarding 初始引导"
-    echo "     - 登录 OpenClaw 账号"
-    echo "     - 配置 API Key"
-    echo "    登录、验证码、密码、API Key 均由你本人输入。"
-    echo "    服务人员不索要、不查看、不记录这些信息。"
+    echo "  安装完成。以下步骤需要用户亲自操作:"
     echo ""
 
-    if [ "$DRY_RUN" = false ]; then
-        echo "  3. 验证安装:"
-        echo "     git --version"
-        echo "     node --version"
-        echo "     npm --version"
-        echo "     pnpm --version"
-        echo "     claude --version"
-        echo "     openclaw --version"
-        echo ""
-        echo "  4. 如果某个命令提示 'command not found':"
-        echo "     - 尝试关闭并重新打开终端"
-        echo "     - 或运行: source ~/.bashrc (Linux)"
-        echo "     - 或运行: source ~/.zshrc (macOS)"
+    if [ "$INSTALL_CLAUDE" = true ]; then
+        echo "  ▸ Claude Code 首次设置:"
+        echo "    运行: claude"
+        echo "    - 登录 Anthropic 账号"
+        echo "    - 输入 API Key"
         echo ""
     fi
 
+    if [ "$INSTALL_OPENCLAW" = true ]; then
+        echo "  ▸ OpenClaw 首次配置:"
+        echo "    运行: openclaw"
+        echo "    - 完成 onboarding 引导"
+        echo "    - 登录账号并配置 API Key"
+        echo ""
+    fi
+
+    echo "  ▸ 交付提醒:"
+    echo "    本套餐需交付: ${PLAN_WORKFLOW_DESC}"
+    echo "    请在安装完成后向用户交付对应工作流教程。"
+    echo ""
+
+    echo "  ▸ 验证安装:"
+    echo "     git --version; node --version; npm --version; pnpm --version"
+    if [ "$INSTALL_CLAUDE" = true ]; then echo "     claude --version"; fi
+    if [ "$INSTALL_OPENCLAW" = true ]; then echo "     openclaw --version"; fi
+    echo ""
+    echo "  登录、验证码、密码、API Key 均由用户本人输入。"
+    echo "  服务人员不索要、不查看、不记录这些信息。"
+    echo ""
+
     append_report ""
     append_report "--- 后续步骤 ---"
-    append_report "用户需手动完成 Claude Code 和 OpenClaw 的首次登录配置"
+    append_report "套餐交付: ${PLAN_WORKFLOW_DESC}"
+    append_report "用户需手动完成首次登录配置"
 }
 
 # ============================================================
@@ -799,7 +963,7 @@ show_next_steps() {
 main() {
     clear 2>/dev/null || true
     echo "=========================================="
-    echo "  AI Coding Installer v1.1.0"
+    echo "  AI Coding Installer v1.2.0"
     echo "  macOS / Linux / WSL 安装脚本"
     if [ "$DRY_RUN" = true ]; then
         echo "  模式: DRY-RUN (仅预览，不安装)"
@@ -808,34 +972,26 @@ main() {
     fi
     echo "=========================================="
     echo ""
-    if [ "$CHECK_ONLY" = true ]; then
-        echo "本脚本将检测你的开发环境并生成报告。"
-        echo "不会安装任何组件。"
-    elif [ "$DRY_RUN" = true ]; then
-        echo "[DRY-RUN] 本脚本将检测环境并展示安装预览。"
-        echo "不会执行任何安装操作。"
-    else
-        echo "本脚本将检测你的开发环境，并安装以下工具:"
-        echo "  - Git"
-        echo "  - Node.js LTS"
-        echo "  - pnpm"
-        echo "  - Claude Code"
-        echo "  - OpenClaw"
-        echo ""
-        echo "安全声明: 本脚本不会读取或保存你的密码/API Key/Token。"
-        echo "登录和配置步骤必须由你本人完成。"
-    fi
-    echo ""
 
     init_report
     detect_os
     detect_tools
 
     if [ "$CHECK_ONLY" = true ]; then
+        PLAN_CHOICE=4
         show_summary
         exit 0
     fi
 
+    select_plan
+
+    if [ "$PLAN_CHOICE" -eq 4 ]; then
+        log_plan_info
+        show_summary
+        exit 0
+    fi
+
+    log_plan_info
     build_install_queue
     if show_plan_and_confirm; then
         execute_install
