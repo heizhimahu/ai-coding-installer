@@ -113,12 +113,12 @@ function Write-Log {
     )
     $timeStr = Get-Date -Format "HH:mm:ss"
     $prefix = switch ($Status) {
-        "OK"      { $Script:SuccessCount++; "[$timeStr] ✓" }
-        "SKIP"    { $Script:SkipCount++;    "[$timeStr] ○" }
-        "FAIL"    { $Script:FailCount++;    "[$timeStr] ✗" }
-        "INFO"    {                        "[$timeStr] ▶" }
-        "MISSING" { $Script:MissingCount++; "[$timeStr] ◇" }
-        "WARN"    {                        "[$timeStr] ⚠" }
+        "OK"      { $Script:SuccessCount++; "[$timeStr] OK" }
+        "SKIP"    { $Script:SkipCount++;    "[$timeStr] SKIP" }
+        "FAIL"    { $Script:FailCount++;    "[$timeStr] FAIL" }
+        "INFO"    {                        "[$timeStr] INFO" }
+        "MISSING" { $Script:MissingCount++; "[$timeStr] MISSING" }
+        "WARN"    {                        "[$timeStr] WARN" }
     }
     $line = "$prefix $Message"
     Write-Host $line
@@ -132,12 +132,12 @@ function Test-Command {
 
 function Get-ToolVersion {
     param([string]$CommandName)
-    if (-not (Test-Command $CommandName)) { return "未安装" }
+    if (-not (Test-Command $CommandName)) { return "not installed" }
     try {
         $output = & $CommandName --version 2>&1 | Select-Object -First 1
         return $output.ToString().Trim()
     } catch {
-        return "已安装（无法获取版本）"
+        return "installed (version unknown)"
     }
 }
 
@@ -145,9 +145,9 @@ function Get-InstallCommand {
     param([string]$StepName)
     switch ($StepName) {
         "Git"          { return $GitInstallWinget }
-        "Node.js LTS"  { if ($Script:NeedNodeUpgrade) { return $NodeInstallWinget + " (升级)" } else { return $NodeInstallWinget } }
-        "pnpm"         { return $PnpmInstallNpm + " (备选: corepack)" }
-        "Claude Code"  { return "优先: $ClaudeInstallWinget ; 回退: iwr -useb $ClaudeInstallUrl | iex" }
+        "Node.js LTS"  { if ($Script:NeedNodeUpgrade) { return $NodeInstallWinget + " (upgrade)" } else { return $NodeInstallWinget } }
+        "pnpm"         { return $PnpmInstallNpm + " (fallback: corepack)" }
+        "Claude Code"  { return "prefer: $ClaudeInstallWinget ; fallback: iwr -useb $ClaudeInstallUrl | iex" }
         "OpenClaw"     { return "& ([scriptblock]::Create((iwr -useb $OpenClawInstallUrl))) -NoOnboard" }
     }
 }
@@ -162,31 +162,31 @@ function Detect-OS {
     $version = $osInfo.Version
     $arch = if ([System.Environment]::Is64BitOperatingSystem) { "x64" } else { "x86" }
 
-    Write-Host "操作系统: $($osInfo.Caption) ($arch)"
-    Write-Host "版本号: $version (Build $build)"
-    Append-Report "操作系统: $($osInfo.Caption) ($arch)"
-    Append-Report "版本号: $version (Build $build)"
+    Write-Host "OS: $($osInfo.Caption) ($arch)"
+    Write-Host "Version: $version (Build $build)"
+    Append-Report "OS: $($osInfo.Caption) ($arch)"
+    Append-Report "Version: $version (Build $build)"
 
     if ([int]$build -lt 10240) {
-        Write-Host "警告: 检测到较旧的 Windows 版本，部分功能可能不兼容"
+        Write-Host "Warning: older Windows version detected, some features may not work"
     }
 
     $currentPrincipal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
     $Script:IsAdmin = $currentPrincipal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
     if ($Script:IsAdmin) {
-        Write-Host "运行模式: 管理员"
+        Write-Host "Mode: Administrator"
     } else {
-        Write-Host "运行模式: 普通用户（部分安装可能需要管理员权限）"
+        Write-Host "Mode: User (some installs may need admin)"
     }
 }
 
 # ============================================================
-# Node 版本检测辅助
+# Node version check
 # ============================================================
 
 function Test-NodeVersion {
     param([string]$VersionString)
-    if ($VersionString -eq "未安装" -or $VersionString -match "无法获取") {
+    if ($VersionString -eq "not installed" -or $VersionString -match "unknown") {
         return
     }
     $ver = $VersionString -replace '^v', ''
@@ -199,26 +199,25 @@ function Test-NodeVersion {
         return
     }
     $Script:NodeVersionLow = $true
-    Write-Log "WARN" "Node.js 版本 ${VersionString} 低于推荐版本。OpenClaw 推荐 Node 24 或 Node 22.16+"
+    Write-Log "WARN" "Node.js $VersionString below recommended. OpenClaw recommends Node 24 or Node 22.16+"
 }
 
 # ============================================================
-# 环境检测（只检测，不安装任何东西）
+# 环境检测
 # ============================================================
 
 function Detect-Tools {
     Write-Host ""
-    Write-Host "--- 环境检测 ---"
+    Write-Host "--- Environment Check ---"
     Append-Report ""
-    Append-Report "--- 环境检测 ---"
+    Append-Report "--- Environment Check ---"
 
     if (Test-Command winget) {
         $Script:HasWinget = $true
         Write-Log "SKIP" "WinGet: $(Get-ToolVersion winget)"
     } else {
         $Script:HasWinget = $false
-        Write-Log "MISSING" "WinGet: 未安装（建议安装 App Installer 以获得 winget）"
-        Write-Host "        提示: WinGet 是 Windows 10 1809+/Windows 11 自带的包管理器"
+        Write-Log "MISSING" "WinGet: not installed (install App Installer for winget)"
     }
 
     if (Test-Command git) {
@@ -226,7 +225,7 @@ function Detect-Tools {
         Write-Log "SKIP" "Git: $(Get-ToolVersion git)"
     } else {
         $Script:HasGit = $false
-        Write-Log "MISSING" "Git: 未安装"
+        Write-Log "MISSING" "Git: not installed"
     }
 
     if (Test-Command node) {
@@ -236,7 +235,7 @@ function Detect-Tools {
         Test-NodeVersion $nodeVersion
     } else {
         $Script:HasNode = $false
-        Write-Log "MISSING" "Node.js: 未安装"
+        Write-Log "MISSING" "Node.js: not installed"
     }
 
     if (Test-Command npm) {
@@ -244,7 +243,7 @@ function Detect-Tools {
         Write-Log "SKIP" "npm: $(Get-ToolVersion npm)"
     } else {
         $Script:HasNpm = $false
-        Write-Log "MISSING" "npm: 未安装"
+        Write-Log "MISSING" "npm: not installed"
     }
 
     if (Test-Command pnpm) {
@@ -252,7 +251,7 @@ function Detect-Tools {
         Write-Log "SKIP" "pnpm: $(Get-ToolVersion pnpm)"
     } else {
         $Script:HasPnpm = $false
-        Write-Log "MISSING" "pnpm: 未安装"
+        Write-Log "MISSING" "pnpm: not installed"
     }
 
     if (Test-Command claude) {
@@ -260,7 +259,7 @@ function Detect-Tools {
         Write-Log "SKIP" "Claude Code: $(Get-ToolVersion claude)"
     } else {
         $Script:HasClaude = $false
-        Write-Log "MISSING" "Claude Code: 未安装"
+        Write-Log "MISSING" "Claude Code: not installed"
     }
 
     if (Test-Command openclaw) {
@@ -268,7 +267,7 @@ function Detect-Tools {
         Write-Log "SKIP" "OpenClaw: $(Get-ToolVersion openclaw)"
     } else {
         $Script:HasOpenClaw = $false
-        Write-Log "MISSING" "OpenClaw: 未安装"
+        Write-Log "MISSING" "OpenClaw: not installed"
     }
 }
 
@@ -279,43 +278,43 @@ function Detect-Tools {
 function Show-PlanMenu {
     Write-Host ""
     Write-Host "=========================================="
-    Write-Host "  选择服务套餐"
+    Write-Host "  Select Service Plan"
     Write-Host "=========================================="
     Write-Host ""
-    Write-Host "  1. 基础上手包  ¥58"
-    Write-Host "     ▸ 安装: Claude Code 或 OpenClaw (二选一)"
-    Write-Host "     ▸ 交付: 新手教程"
-    Write-Host "     ▸ 售后: 7 天"
+    Write-Host "  1. Basic (58 yuan)"
+    Write-Host "     Install: Claude Code OR OpenClaw (pick one)"
+    Write-Host "     Deliver: beginner tutorial"
+    Write-Host "     Support: 7 days"
     Write-Host ""
-    Write-Host "  2. 进阶工作流包  ¥98"
-    Write-Host "     ▸ 安装: Claude Code 或 OpenClaw (二选一)"
-    Write-Host "     ▸ 交付: 新手教程 + 5 套指定工作流教程"
-    Write-Host "     ▸ 售后: 14 天"
+    Write-Host "  2. Pro (98 yuan)"
+    Write-Host "     Install: Claude Code OR OpenClaw (pick one)"
+    Write-Host "     Deliver: beginner tutorial + 5 workflow tutorials"
+    Write-Host "     Support: 14 days"
     Write-Host ""
-    Write-Host "  3. 全套效率包  ¥158/¥198"
-    Write-Host "     ▸ 安装: Claude Code + OpenClaw (两个都装)"
-    Write-Host "     ▸ 交付: 新手教程 + 10 套指定工作流教程"
-    Write-Host "     ▸ 售后: 14 天"
+    Write-Host "  3. Full Suite (158/198 yuan)"
+    Write-Host "     Install: Claude Code AND OpenClaw (both)"
+    Write-Host "     Deliver: beginner tutorial + 10 workflow tutorials"
+    Write-Host "     Support: 14 days"
     Write-Host ""
-    Write-Host "  4. 只检测环境 (不安装任何软件)"
+    Write-Host "  4. Check environment only (no install)"
     Write-Host ""
-    Write-Host "  5. 退出"
+    Write-Host "  5. Exit"
     Write-Host ""
     Write-Host "=========================================="
 
     if ($DryRun) {
-        Write-Host "  [DRY-RUN 模式: 仅预览，不真正安装]"
+        Write-Host "  [DRY-RUN: preview only, no actual install]"
         Write-Host ""
     }
 
     while ($true) {
-        $choice = Read-Host "请输入选项 (1/2/3/4/5)"
+        $choice = Read-Host "Enter option (1/2/3/4/5)"
         switch ($choice) {
             "1" {
                 $Script:PlanChoice = 1
-                $Script:PlanName = "基础上手包"
-                $Script:PlanPrice = "¥58"
-                $Script:PlanSupport = "7 天"
+                $Script:PlanName = "Basic"
+                $Script:PlanPrice = "58 yuan"
+                $Script:PlanSupport = "7 days"
                 $Script:PlanTutorial = $true
                 $Script:PlanWorkflowCount = 0
                 Select-Tool
@@ -323,9 +322,9 @@ function Show-PlanMenu {
             }
             "2" {
                 $Script:PlanChoice = 2
-                $Script:PlanName = "进阶工作流包"
-                $Script:PlanPrice = "¥98"
-                $Script:PlanSupport = "14 天"
+                $Script:PlanName = "Pro"
+                $Script:PlanPrice = "98 yuan"
+                $Script:PlanSupport = "14 days"
                 $Script:PlanTutorial = $true
                 $Script:PlanWorkflowCount = 5
                 Select-Tool
@@ -333,9 +332,9 @@ function Show-PlanMenu {
             }
             "3" {
                 $Script:PlanChoice = 3
-                $Script:PlanName = "全套效率包"
-                $Script:PlanPrice = "¥158/¥198"
-                $Script:PlanSupport = "14 天"
+                $Script:PlanName = "Full Suite"
+                $Script:PlanPrice = "158/198 yuan"
+                $Script:PlanSupport = "14 days"
                 $Script:PlanTutorial = $true
                 $Script:PlanWorkflowCount = 10
                 $Script:InstallClaude = $true
@@ -345,7 +344,7 @@ function Show-PlanMenu {
             }
             "4" {
                 $Script:PlanChoice = 4
-                $Script:PlanName = "仅环境检测"
+                $Script:PlanName = "Check Only"
                 $Script:PlanPrice = "-"
                 $Script:PlanSupport = "-"
                 $Script:PlanTutorial = $false
@@ -353,12 +352,12 @@ function Show-PlanMenu {
                 return
             }
             "5" {
-                Write-Host "已退出。"
-                Append-Report "用户退出"
+                Write-Host "Exited."
+                Append-Report "User exited"
                 exit 0
             }
             default {
-                Write-Host "无效选项，请输入 1-5"
+                Write-Host "Invalid option, enter 1-5"
             }
         }
     }
@@ -366,13 +365,13 @@ function Show-PlanMenu {
 
 function Select-Tool {
     Write-Host ""
-    Write-Host "  请选择要安装的工具:"
+    Write-Host "  Select tool to install:"
     Write-Host "  A. Claude Code"
     Write-Host "  B. OpenClaw"
     Write-Host ""
 
     while ($true) {
-        $tool = Read-Host "请输入 (A/B)"
+        $tool = Read-Host "Enter (A/B)"
         switch ($tool.ToUpper()) {
             "A" {
                 $Script:InstallClaude = $true
@@ -387,7 +386,7 @@ function Select-Tool {
                 return
             }
             default {
-                Write-Host "无效选项，请输入 A 或 B"
+                Write-Host "Invalid, enter A or B"
             }
         }
     }
@@ -395,17 +394,17 @@ function Select-Tool {
 
 function Log-PlanInfo {
     Append-Report ""
-    Append-Report "--- 套餐信息 ---"
-    Append-Report "套餐名称: $Script:PlanName"
-    Append-Report "价格: $Script:PlanPrice"
-    Append-Report "售后: $Script:PlanSupport"
-    Append-Report "选择安装: $Script:ToolChoiceName"
-    Append-Report "新手教程: $(if ($Script:PlanTutorial) { '是' } else { '否' })"
-    Append-Report "指定工作流数量: $Script:PlanWorkflowCount"
+    Append-Report "--- Plan Info ---"
+    Append-Report "Plan: $Script:PlanName"
+    Append-Report "Price: $Script:PlanPrice"
+    Append-Report "Support: $Script:PlanSupport"
+    Append-Report "Install: $Script:ToolChoiceName"
+    Append-Report "Tutorial: $(if ($Script:PlanTutorial) { 'Yes' } else { 'No' })"
+    Append-Report "Workflows: $Script:PlanWorkflowCount"
 }
 
 # ============================================================
-# 安装队列
+# Build install queue
 # ============================================================
 
 function Build-InstallQueue {
@@ -424,7 +423,7 @@ function Build-InstallQueue {
 }
 
 # ============================================================
-# 安装计划展示
+# Show plan and confirm
 # ============================================================
 
 function Show-PlanAndConfirm {
@@ -432,39 +431,39 @@ function Show-PlanAndConfirm {
 
     if ($DryRun) {
         Write-Host "=========================================="
-        Write-Host "  [DRY-RUN] 安装预览"
+        Write-Host "  [DRY-RUN] Install Preview"
         Write-Host "=========================================="
         Append-Report ""
-        Append-Report "--- [DRY-RUN] 安装预览 ---"
+        Append-Report "--- [DRY-RUN] Install Preview ---"
     } else {
         Write-Host "=========================================="
-        Write-Host "  安装计划"
+        Write-Host "  Install Plan"
         Write-Host "=========================================="
         Append-Report ""
-        Append-Report "--- 安装计划 ---"
+        Append-Report "--- Install Plan ---"
     }
 
-    Write-Host "套餐: $Script:PlanName ($Script:PlanPrice)"
-    Write-Host "售后: $Script:PlanSupport"
-    Write-Host "安装工具: $Script:ToolChoiceName"
-    Write-Host "新手教程: $(if ($Script:PlanTutorial) { '是' } else { '否' })"
-    Write-Host "指定工作流: $Script:PlanWorkflowCount 套"
-    Append-Report "套餐: $Script:PlanName ($Script:PlanPrice)"
-    Append-Report "售后: $Script:PlanSupport"
-    Append-Report "安装工具: $Script:ToolChoiceName"
-    Append-Report "新手教程: $(if ($Script:PlanTutorial) { '是' } else { '否' })"
-    Append-Report "指定工作流数量: $Script:PlanWorkflowCount"
+    Write-Host "Plan: $Script:PlanName ($Script:PlanPrice)"
+    Write-Host "Support: $Script:PlanSupport"
+    Write-Host "Install: $Script:ToolChoiceName"
+    Write-Host "Tutorial: $(if ($Script:PlanTutorial) { 'Yes' } else { 'No' })"
+    Write-Host "Workflows: $Script:PlanWorkflowCount"
+    Append-Report "Plan: $Script:PlanName ($Script:PlanPrice)"
+    Append-Report "Support: $Script:PlanSupport"
+    Append-Report "Install: $Script:ToolChoiceName"
+    Append-Report "Tutorial: $(if ($Script:PlanTutorial) { 'Yes' } else { 'No' })"
+    Append-Report "Workflows: $Script:PlanWorkflowCount"
 
     Write-Host ""
 
     if ($Script:InstallQueue.Count -eq 0) {
-        Write-Host "所有组件已安装，无需操作。"
-        Append-Report "所有组件已安装，无需操作。"
+        Write-Host "All components installed, nothing to do."
+        Append-Report "All components installed."
         return $true
     }
 
-    Write-Host "将按以下顺序安装 $($Script:InstallQueue.Count) 个组件:"
-    Append-Report "将安装 $($Script:InstallQueue.Count) 个组件:"
+    Write-Host "Will install $($Script:InstallQueue.Count) components in order:"
+    Append-Report "Will install $($Script:InstallQueue.Count) components:"
     for ($i = 0; $i -lt $Script:InstallQueue.Count; $i++) {
         $num = $i + 1
         $step = $Script:InstallQueue[$i]
@@ -472,48 +471,47 @@ function Show-PlanAndConfirm {
         Append-Report "  ${num}. $step"
         if ($DryRun) {
             $cmd = Get-InstallCommand $step
-            Write-Host "      → $cmd"
-            Append-Report "      → $cmd"
+            Write-Host "      -> $cmd"
+            Append-Report "      -> $cmd"
         }
     }
 
-    # Node 版本警告 + 升级询问：选了 OpenClaw 且 Node 已安装但版本过低
     if ($Script:InstallOpenClaw -and $Script:NodeVersionLow -and $Script:HasNode) {
         Write-Host ""
-        Write-Host "  ⚠ Node.js 版本 $Script:NodeVersion 低于 OpenClaw 推荐版本 (24 或 22.16+)。"
+        Write-Host "  WARNING: Node.js $Script:NodeVersion below OpenClaw recommendation (24 or 22.16+)."
         if ($DryRun) {
-            Write-Host "    安装计划中不会自动升级 Node。如需升级请手动操作。"
-            Append-Report "⚠ Node 版本过低 ($Script:NodeVersion)，OpenClaw 推荐 24 或 22.16+"
+            Write-Host "    Node will NOT be auto-upgraded in dry-run."
+            Append-Report "WARN: Node $Script:NodeVersion below recommendation"
         } else {
-            $upgrade = Read-Host "  是否升级 Node.js? (y/N)"
+            $upgrade = Read-Host "  Upgrade Node.js? (y/N)"
             if ($upgrade -eq "y" -or $upgrade -eq "Y") {
                 $Script:NeedNodeUpgrade = $true
                 Build-InstallQueue
-                Write-Host "  已确认升级 Node.js。"
-                Append-Report "用户确认升级 Node.js ($Script:NodeVersion → LTS)"
+                Write-Host "  Node upgrade confirmed."
+                Append-Report "User confirmed Node upgrade ($Script:NodeVersion -> LTS)"
             } else {
-                Write-Host "  将继续安装 OpenClaw，但报告已记录版本风险。"
-                Append-Report "⚠ 用户选择不升级 Node ($Script:NodeVersion)，OpenClaw 可能在低版本下不稳定"
+                Write-Host "  Continuing without upgrade. Risk noted in report."
+                Append-Report "WARN: User declined Node upgrade ($Script:NodeVersion), OpenClaw may be unstable"
             }
         }
     }
 
     if ($DryRun) {
         Write-Host ""
-        Write-Host "[DRY-RUN] 以上为预览，未执行任何安装操作。"
-        Write-Host "安装报告已保存到: $ReportFile"
-        Append-Report "[DRY-RUN] 以上为预览，未执行任何安装操作。"
+        Write-Host "[DRY-RUN] Preview only, no install actions performed."
+        Write-Host "Report saved to: $ReportFile"
+        Append-Report "[DRY-RUN] Preview only."
         return $false
     }
 
     Write-Host ""
-    Write-Host "安装报告将保存到: $ReportFile"
+    Write-Host "Report will be saved to: $ReportFile"
     Write-Host ""
 
-    $confirm = Read-Host "确认开始安装? (y/N)"
+    $confirm = Read-Host "Confirm installation? (y/N)"
     if ($confirm -ne "y" -and $confirm -ne "Y") {
-        Write-Host "已取消安装。"
-        Append-Report "用户取消安装"
+        Write-Host "Install cancelled."
+        Append-Report "User cancelled"
         return $false
     }
     return $true
@@ -525,13 +523,13 @@ function Show-PlanAndConfirm {
 
 function Install-Git {
     if ($Script:HasGit) {
-        Write-Log "SKIP" "Git: 已安装，跳过"
+        Write-Log "SKIP" "Git: already installed, skipping"
         return
     }
-    Write-Log "INFO" "正在安装 Git..."
+    Write-Log "INFO" "Installing Git..."
     if (-not $Script:HasWinget) {
-        Write-Log "FAIL" "Git: 需要 WinGet，但系统中未找到"
-        Write-Host "        请手动安装 Git: https://git-scm.com/download/win"
+        Write-Log "FAIL" "Git: WinGet required but not found"
+        Write-Host "        Manual install: https://git-scm.com/download/win"
         $Script:FailList += "Git"
         return
     }
@@ -539,29 +537,29 @@ function Install-Git {
         $result = Invoke-Expression $GitInstallWinget 2>&1
         if ($LASTEXITCODE -eq 0 -and (Test-Command git)) {
             $Script:HasGit = $true
-            Write-Log "OK" "Git: 安装成功 ($(Get-ToolVersion git))"
+            Write-Log "OK" "Git: installed ($(Get-ToolVersion git))"
         } else {
-            throw "安装失败"
+            throw "install failed"
         }
     } catch {
-        Write-Log "FAIL" "Git: 安装失败"
+        Write-Log "FAIL" "Git: install failed"
         $Script:FailList += "Git"
     }
 }
 
 function Install-NodeJS {
     if ($Script:HasNode -and -not $Script:NeedNodeUpgrade) {
-        Write-Log "SKIP" "Node.js: 已安装，跳过"
+        Write-Log "SKIP" "Node.js: already installed, skipping"
         return
     }
     if ($Script:NeedNodeUpgrade) {
-        Write-Log "INFO" "正在升级 Node.js (当前: $(Get-ToolVersion node))..."
+        Write-Log "INFO" "Upgrading Node.js (current: $(Get-ToolVersion node))..."
     } else {
-        Write-Log "INFO" "正在安装 Node.js LTS..."
+        Write-Log "INFO" "Installing Node.js LTS..."
     }
     if (-not $Script:HasWinget) {
-        Write-Log "FAIL" "Node.js: 需要 WinGet，但系统中未找到"
-        Write-Host "        请手动安装 Node.js: https://nodejs.org/"
+        Write-Log "FAIL" "Node.js: WinGet required but not found"
+        Write-Host "        Manual install: https://nodejs.org/"
         $Script:FailList += "Node.js"
         return
     }
@@ -572,138 +570,137 @@ function Install-NodeJS {
             $Script:HasNode = $true
             $Script:HasNpm = $true
             $Script:NeedNodeUpgrade = $false
-            Write-Log "OK" "Node.js: 安装成功 ($(Get-ToolVersion node))"
-            Write-Log "OK" "npm: 附带安装 ($(Get-ToolVersion npm))"
+            Write-Log "OK" "Node.js: installed ($(Get-ToolVersion node))"
+            Write-Log "OK" "npm: bundled ($(Get-ToolVersion npm))"
         } else {
-            throw "安装后未找到 node 命令"
+            throw "node command not found after install"
         }
     } catch {
-        Write-Log "FAIL" "Node.js: 安装失败"
+        Write-Log "FAIL" "Node.js: install failed"
         $Script:FailList += "Node.js"
     }
 }
 
 function Install-Pnpm {
     if ($Script:HasPnpm) {
-        Write-Log "SKIP" "pnpm: 已安装，跳过"
+        Write-Log "SKIP" "pnpm: already installed, skipping"
         return
     }
     if (-not (Test-Command npm)) {
-        Write-Log "FAIL" "pnpm: 需要先安装 Node.js/npm"
+        Write-Log "FAIL" "pnpm: npm required first"
         $Script:FailList += "pnpm"
         return
     }
-    Write-Log "INFO" "正在安装 pnpm..."
+    Write-Log "INFO" "Installing pnpm..."
     try {
         $result = Invoke-Expression $PnpmInstallNpm 2>&1
         if ($LASTEXITCODE -eq 0 -and (Test-Command pnpm)) {
             $Script:HasPnpm = $true
-            Write-Log "OK" "pnpm: 安装成功 ($(Get-ToolVersion pnpm))"
+            Write-Log "OK" "pnpm: installed ($(Get-ToolVersion pnpm))"
         } else {
-            Write-Host "        npm 全局安装失败，尝试 corepack..."
+            Write-Host "        npm install failed, trying corepack..."
             corepack enable 2>$null
             corepack prepare pnpm@latest --activate 2>$null
             if (Test-Command pnpm) {
                 $Script:HasPnpm = $true
-                Write-Log "OK" "pnpm: 通过 corepack 安装成功 ($(Get-ToolVersion pnpm))"
+                Write-Log "OK" "pnpm: installed via corepack ($(Get-ToolVersion pnpm))"
             } else {
-                throw "安装失败"
+                throw "install failed"
             }
         }
     } catch {
-        Write-Log "FAIL" "pnpm: 安装失败"
+        Write-Log "FAIL" "pnpm: install failed"
         $Script:FailList += "pnpm"
     }
 }
 
 function Install-Claude {
     if ($Script:HasClaude) {
-        Write-Log "SKIP" "Claude Code: 已安装，跳过"
+        Write-Log "SKIP" "Claude Code: already installed, skipping"
         return
     }
     if ($Script:HasWinget) {
-        Write-Log "INFO" "正在通过 WinGet 安装 Claude Code..."
+        Write-Log "INFO" "Installing Claude Code via WinGet..."
         try {
             $result = Invoke-Expression $ClaudeInstallWinget 2>&1
             if ($LASTEXITCODE -eq 0) {
                 $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
                 if (Test-Command claude) {
                     $Script:HasClaude = $true
-                    Write-Log "OK" "Claude Code: 安装成功 ($(Get-ToolVersion claude))"
+                    Write-Log "OK" "Claude Code: installed ($(Get-ToolVersion claude))"
                 } else {
-                    Write-Log "OK" "Claude Code: 安装完成（可能需要重新打开终端）"
+                    Write-Log "OK" "Claude Code: install done (may need terminal restart)"
                     $Script:HasClaude = $true
                 }
                 Show-ClaudePostInstall
                 return
             }
         } catch {
-            Write-Host "        WinGet 安装失败，尝试官方脚本..."
+            Write-Host "        WinGet failed, trying official script..."
         }
     }
 
-    Write-Log "INFO" "正在通过官方脚本安装 Claude Code..."
+    Write-Log "INFO" "Installing Claude Code via official script..."
     try {
         $scriptContent = Invoke-RestMethod -Uri $ClaudeInstallUrl
         Invoke-Expression $scriptContent
         if ($LASTEXITCODE -eq 0 -or $?) {
             if (Test-Command claude) {
                 $Script:HasClaude = $true
-                Write-Log "OK" "Claude Code: 安装成功 ($(Get-ToolVersion claude))"
+                Write-Log "OK" "Claude Code: installed ($(Get-ToolVersion claude))"
             } else {
                 $Script:HasClaude = $true
-                Write-Log "OK" "Claude Code: 安装脚本执行完成（可能需要重新打开终端）"
+                Write-Log "OK" "Claude Code: install done (may need terminal restart)"
             }
             Show-ClaudePostInstall
         } else {
-            throw "安装脚本返回非零退出码"
+            throw "script returned non-zero"
         }
     } catch {
-        Write-Log "FAIL" "Claude Code: 安装失败"
+        Write-Log "FAIL" "Claude Code: install failed"
         $Script:FailList += "Claude Code"
     }
 }
 
 function Show-ClaudePostInstall {
     Write-Host ""
-    Write-Host "  ⚠ Claude Code 安装完成后需要你本人运行 'claude' 完成首次设置。"
-    Write-Host "    登录、验证码、API Key 均由你本人输入。"
-    Write-Host "    服务人员不索要、不查看、不记录这些信息。"
+    Write-Host "  NOTE: Run 'claude' to complete setup."
+    Write-Host "    Login, verification, API Key must be entered by you."
+    Write-Host "    Service provider does not ask for or record these."
 }
 
 function Install-OpenClaw {
     if ($Script:HasOpenClaw) {
-        Write-Log "SKIP" "OpenClaw: 已安装，跳过"
+        Write-Log "SKIP" "OpenClaw: already installed, skipping"
         return
     }
-    Write-Log "INFO" "正在通过官方脚本安装 OpenClaw (no-onboard 模式)..."
+    Write-Log "INFO" "Installing OpenClaw via official script (no-onboard)..."
     try {
         $scriptContent = Invoke-RestMethod -Uri $OpenClawInstallUrl
         & ([scriptblock]::Create($scriptContent)) -NoOnboard
         if ($LASTEXITCODE -eq 0 -or $?) {
             if (Test-Command openclaw) {
                 $Script:HasOpenClaw = $true
-                Write-Log "OK" "OpenClaw: 安装成功 ($(Get-ToolVersion openclaw))"
+                Write-Log "OK" "OpenClaw: installed ($(Get-ToolVersion openclaw))"
             } else {
                 $Script:HasOpenClaw = $true
-                Write-Log "OK" "OpenClaw: 安装脚本执行完成（可能需要重新打开终端）"
+                Write-Log "OK" "OpenClaw: install done (may need terminal restart)"
             }
             Show-OpenClawPostInstall
         } else {
-            throw "安装脚本返回非零退出码"
+            throw "script returned non-zero"
         }
     } catch {
-        Write-Log "FAIL" "OpenClaw: 安装失败"
+        Write-Log "FAIL" "OpenClaw: install failed"
         $Script:FailList += "OpenClaw"
     }
 }
 
 function Show-OpenClawPostInstall {
     Write-Host ""
-    Write-Host "  ⚠ OpenClaw 安装完成后需要你本人运行 'openclaw' 完成首次配置。"
-    Write-Host "    该过程涉及: onboarding 引导、登录账号、配置 API Key。"
-    Write-Host "    登录、验证码、密码、API Key 均由你本人输入。"
-    Write-Host "    服务人员不索要、不查看、不记录这些信息。"
+    Write-Host "  NOTE: Run 'openclaw' to complete onboarding."
+    Write-Host "    Onboarding, login, API Key must be done by you."
+    Write-Host "    Service provider does not ask for or record these."
 }
 
 # ============================================================
@@ -713,10 +710,10 @@ function Show-OpenClawPostInstall {
 function Execute-Install {
     Write-Host ""
     Write-Host "=========================================="
-    Write-Host "  开始安装"
+    Write-Host "  Installing"
     Write-Host "=========================================="
     Append-Report ""
-    Append-Report "--- 安装过程 ---"
+    Append-Report "--- Install Process ---"
 
     foreach ($step in $Script:InstallQueue) {
         Write-Host ""
@@ -731,7 +728,7 @@ function Execute-Install {
 }
 
 # ============================================================
-# 安装摘要
+# Summary and next steps
 # ============================================================
 
 function Show-Summary {
@@ -739,116 +736,108 @@ function Show-Summary {
 
     if ($Script:PlanChoice -eq 4) {
         Write-Host "=========================================="
-        Write-Host "  环境检测摘要"
+        Write-Host "  Environment Check Summary"
         Write-Host "=========================================="
         Append-Report ""
-        Append-Report "--- 环境检测摘要 ---"
-        $summary = "已就绪: $SkipCount, 缺失: $MissingCount"
+        Append-Report "--- Environment Check Summary ---"
+        $summary = "Ready: $SkipCount, Missing: $MissingCount"
         Write-Host $summary
         Append-Report $summary
     } elseif ($DryRun) {
         Write-Host "=========================================="
-        Write-Host "  安装预览摘要"
+        Write-Host "  Preview Summary"
         Write-Host "=========================================="
         Append-Report ""
-        Append-Report "--- 安装预览摘要 ---"
-        $summary = "套餐: $Script:PlanName, 待安装: $($Script:InstallQueue.Count), 已就绪: $SkipCount, 缺失: $MissingCount"
+        Append-Report "--- Preview Summary ---"
+        $summary = "Plan: $Script:PlanName, To install: $($Script:InstallQueue.Count), Ready: $SkipCount, Missing: $MissingCount"
         Write-Host $summary
         Append-Report $summary
         Write-Host ""
-        Write-Host "[DRY-RUN] 未执行任何安装操作。"
-        Append-Report "[DRY-RUN] 未执行任何安装操作。"
+        Write-Host "[DRY-RUN] No install actions performed."
+        Append-Report "[DRY-RUN] No install actions performed."
     } else {
         Write-Host "=========================================="
-        Write-Host "  安装摘要"
+        Write-Host "  Install Summary"
         Write-Host "=========================================="
         Append-Report ""
-        Append-Report "--- 安装摘要 ---"
-        $summary = "成功: $SuccessCount, 跳过: $SkipCount, 缺失: $MissingCount, 失败: $FailCount"
+        Append-Report "--- Install Summary ---"
+        $summary = "OK: $SuccessCount, Skip: $SkipCount, Missing: $MissingCount, Fail: $FailCount"
         Write-Host $summary
         Append-Report $summary
 
         if ($Script:FailList.Count -gt 0) {
             Write-Host ""
-            Write-Host "以下组件安装失败:"
-            Append-Report "失败组件:"
+            Write-Host "Failed components:"
+            Append-Report "Failed:"
             foreach ($item in $Script:FailList) {
                 Write-Host "  - $item"
                 Append-Report "  - $item"
             }
             Write-Host ""
-            Write-Host "请手动安装失败的组件后重新运行本脚本。"
+            Write-Host "Please manually install failed components."
         }
 
         Write-Host ""
-        Write-Host "套餐: $Script:PlanName ($Script:PlanPrice) | 售后: $Script:PlanSupport"
-        Write-Host "新手教程: $(if ($Script:PlanTutorial) { '是' } else { '否' }) | 指定工作流: $Script:PlanWorkflowCount 套"
-        Append-Report "套餐: $Script:PlanName ($Script:PlanPrice) | 售后: $Script:PlanSupport"
-        Append-Report "新手教程: $(if ($Script:PlanTutorial) { '是' } else { '否' }) | 指定工作流: $Script:PlanWorkflowCount 套"
+        Write-Host "Plan: $Script:PlanName ($Script:PlanPrice) | Support: $Script:PlanSupport"
+        Write-Host "Tutorial: $(if ($Script:PlanTutorial) { 'Yes' } else { 'No' }) | Workflows: $Script:PlanWorkflowCount"
+        Append-Report "Plan: $Script:PlanName ($Script:PlanPrice) | Support: $Script:PlanSupport"
+        Append-Report "Tutorial: $(if ($Script:PlanTutorial) { 'Yes' } else { 'No' }) | Workflows: $Script:PlanWorkflowCount"
     }
 
     Write-Host ""
-    Write-Host "完整报告已保存到: $ReportFile"
+    Write-Host "Full report saved to: $ReportFile"
     Append-Report ""
     Append-Report "=========================================="
-    Append-Report "报告结束"
+    Append-Report "End of report"
 }
-
-# ============================================================
-# 后续步骤
-# ============================================================
 
 function Show-NextSteps {
     if ($Script:PlanChoice -eq 4 -or $DryRun) { return }
 
     Write-Host ""
     Write-Host "=========================================="
-    Write-Host "  后续步骤"
+    Write-Host "  Next Steps"
     Write-Host "=========================================="
     Write-Host ""
-    Write-Host "  安装完成。以下步骤需要用户亲自操作:"
+    Write-Host "  The following must be done by the user:"
     Write-Host ""
 
     if ($Script:InstallClaude) {
-        Write-Host "  ▸ Claude Code 首次设置:"
-        Write-Host "    运行: claude"
-        Write-Host "    - 登录 Anthropic 账号"
-        Write-Host "    - 输入 API Key"
+        Write-Host "  Claude Code setup:"
+        Write-Host "    Run: claude"
+        Write-Host "    - Login to Anthropic"
+        Write-Host "    - Enter API Key"
         Write-Host ""
     }
 
     if ($Script:InstallOpenClaw) {
-        Write-Host "  ▸ OpenClaw 首次配置:"
-        Write-Host "    运行: openclaw"
-        Write-Host "    - 完成 onboarding 引导"
-        Write-Host "    - 登录账号并配置 API Key"
+        Write-Host "  OpenClaw setup:"
+        Write-Host "    Run: openclaw"
+        Write-Host "    - Complete onboarding"
+        Write-Host "    - Login and configure API Key"
         Write-Host ""
     }
 
-    Write-Host "  ▸ 交付提醒:"
-    if ($Script:PlanTutorial) {
-        Write-Host "    - 新手教程"
-    }
-    if ($Script:PlanWorkflowCount -gt 0) {
-        Write-Host "    - $Script:PlanWorkflowCount 套指定工作流教程"
-    }
-    Write-Host "    请在安装完成后向用户交付对应内容。"
+    Write-Host "  Delivery reminder:"
+    if ($Script:PlanTutorial) { Write-Host "    - Beginner tutorial" }
+    if ($Script:PlanWorkflowCount -gt 0) { Write-Host "    - $Script:PlanWorkflowCount workflow tutorials" }
+    Write-Host "    Deliver to user after install completes."
     Write-Host ""
 
-    Write-Host "  ▸ 验证安装:"
-    Write-Host "     git --version; node --version; npm --version; pnpm --version"
-    if ($Script:InstallClaude) { Write-Host "     claude --version" }
-    if ($Script:InstallOpenClaw) { Write-Host "     openclaw --version" }
+    Write-Host "  Verify:"
+    Write-Host "    git --version; node --version; npm --version; pnpm --version"
+    if ($Script:InstallClaude) { Write-Host "    claude --version" }
+    if ($Script:InstallOpenClaw) { Write-Host "    openclaw --version" }
     Write-Host ""
-    Write-Host "  登录、验证码、密码、API Key 均由用户本人输入。"
-    Write-Host "  服务人员不索要、不查看、不记录这些信息。"
+    Write-Host "  Login, codes, passwords, API Keys must be entered by the user."
+    Write-Host "  Service provider does not ask for or record these."
     Write-Host ""
 
     Append-Report ""
-    Append-Report "--- 后续步骤 ---"
-    Append-Report "新手教程: $(if ($Script:PlanTutorial) { '是' } else { '否' })"
-    Append-Report "指定工作流: $Script:PlanWorkflowCount 套"
-    Append-Report "用户需手动完成首次登录配置"
+    Append-Report "--- Next Steps ---"
+    Append-Report "Tutorial: $(if ($Script:PlanTutorial) { 'Yes' } else { 'No' })"
+    Append-Report "Workflows: $Script:PlanWorkflowCount"
+    Append-Report "User must complete login setup manually"
 }
 
 # ============================================================
@@ -859,11 +848,11 @@ function Main {
     Clear-Host
     Write-Host "=========================================="
     Write-Host "  AI Coding Installer v1.3.0"
-    Write-Host "  Windows 10/11 安装脚本"
+    Write-Host "  Windows 10/11"
     if ($DryRun) {
-        Write-Host "  模式: DRY-RUN (仅预览，不安装)"
+        Write-Host "  Mode: DRY-RUN (preview only)"
     } elseif ($CheckOnly) {
-        Write-Host "  模式: CHECK-ONLY (仅检测环境)"
+        Write-Host "  Mode: CHECK-ONLY (environment only)"
     }
     Write-Host "=========================================="
     Write-Host ""
