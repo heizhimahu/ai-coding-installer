@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# ============================================================
+#
 # AI Coding Installer — macOS / Linux / WSL
 # Version: 2.0.0
-# ============================================================
+#
 # Security:
 #   - Does NOT read/save/upload passwords / API Keys / Tokens / Cookies
 #   - Does NOT modify system security policy
 #   - All install steps require user confirmation
 #   - Report saved locally only
-# ============================================================
+#
 
 set -euo pipefail
 
@@ -17,8 +17,12 @@ CHECK_ONLY=false
 
 for arg in "$@"; do
     case "$arg" in
-        --dry-run|-d)    DRY_RUN=true ;;
-        --check-only|-c) CHECK_ONLY=true ;;
+        --dry-run|-d)
+            DRY_RUN=true
+            ;;
+        --check-only|-c)
+            CHECK_ONLY=true
+            ;;
         --help|-h)
             echo "Usage: ./install-mac-linux.sh [options]"
             echo ""
@@ -40,12 +44,10 @@ if [ "$DRY_RUN" = true ] && [ "$CHECK_ONLY" = true ]; then
     exit 1
 fi
 
-# ---- config ----
 CLAUDE_INSTALL_URL="https://claude.ai/install.sh"
 OPENCLAW_INSTALL_URL="https://openclaw.ai/install.sh"
 NODE_NODESOURCE_URL="https://deb.nodesource.com/setup_lts.x"
 
-# ---- state ----
 REPORT_FILE="$HOME/ai-coding-install-report.txt"
 SUCCESS_COUNT=0
 SKIP_COUNT=0
@@ -67,8 +69,6 @@ HAS_HOMEBREW=false
 NODE_VERSION_LOW=false
 NODE_VERSION=""
 
-# ---- helpers ----
-
 init_report() {
     local title="Install Report"
     if [ "$CHECK_ONLY" = true ]; then
@@ -76,7 +76,7 @@ init_report() {
     elif [ "$DRY_RUN" = true ]; then
         title="[DRY-RUN] Install Preview Report"
     fi
-    cat > "$REPORT_FILE" << EOF
+    cat > "$REPORT_FILE" << REPEOF
 ==========================================
   AI Coding Installer — ${title}
 ==========================================
@@ -84,42 +84,80 @@ Time: $(date '+%Y-%m-%d %H:%M:%S')
 User: $(whoami)
 Host: $(hostname)
 
-EOF
+REPEOF
 }
 
-append_report() { echo "$1" >> "$REPORT_FILE"; }
+append_report() {
+    echo "$1" >> "$REPORT_FILE"
+}
 
 log_step() {
-    local status="$1" message="$2"
-    local time_str prefix
+    local status="$1"
+    local message="$2"
+    local time_str
     time_str=$(date '+%H:%M:%S')
+    local prefix=""
     case "$status" in
-        OK)      prefix="[${time_str}] OK";      SUCCESS_COUNT=$((SUCCESS_COUNT + 1)) ;;
-        SKIP)    prefix="[${time_str}] SKIP";     SKIP_COUNT=$((SKIP_COUNT + 1)) ;;
-        FAIL)    prefix="[${time_str}] FAIL";     FAIL_COUNT=$((FAIL_COUNT + 1)) ;;
-        INFO)    prefix="[${time_str}] INFO" ;;
-        MISSING) prefix="[${time_str}] MISSING";  MISSING_COUNT=$((MISSING_COUNT + 1)) ;;
-        WARN)    prefix="[${time_str}] WARN" ;;
+        OK)
+            prefix="[${time_str}] OK"
+            SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
+            ;;
+        SKIP)
+            prefix="[${time_str}] SKIP"
+            SKIP_COUNT=$((SKIP_COUNT + 1))
+            ;;
+        FAIL)
+            prefix="[${time_str}] FAIL"
+            FAIL_COUNT=$((FAIL_COUNT + 1))
+            ;;
+        INFO)
+            prefix="[${time_str}] INFO"
+            ;;
+        MISSING)
+            prefix="[${time_str}] MISSING"
+            MISSING_COUNT=$((MISSING_COUNT + 1))
+            ;;
+        WARN)
+            prefix="[${time_str}] WARN"
+            ;;
     esac
     local line="${prefix} ${message}"
     echo "$line"
     append_report "$line"
 }
 
-command_exists() { command -v "$1" >/dev/null 2>&1; }
+command_exists() {
+    command -v "$1" >/dev/null 2>&1
+}
 
 get_version() {
     local cmd="$1"
     if command_exists "$cmd"; then
         case "$cmd" in
-            git)      git --version 2>&1 | head -1 ;;
-            node)     node --version 2>&1 ;;
-            npm)      npm --version 2>&1 ;;
-            pnpm)     pnpm --version 2>&1 ;;
-            claude)   claude --version 2>&1 | head -1 || echo "installed" ;;
-            openclaw) openclaw --version 2>&1 | head -1 || echo "installed" ;;
-            brew)     brew --version 2>&1 | head -1 ;;
-            *)        $cmd --version 2>&1 | head -1 || echo "installed" ;;
+            git)
+                git --version 2>&1 | head -1
+                ;;
+            node)
+                node --version 2>&1
+                ;;
+            npm)
+                npm --version 2>&1
+                ;;
+            pnpm)
+                pnpm --version 2>&1
+                ;;
+            claude)
+                claude --version 2>&1 | head -1 || echo "installed"
+                ;;
+            openclaw)
+                openclaw --version 2>&1 | head -1 || echo "installed"
+                ;;
+            brew)
+                brew --version 2>&1 | head -1
+                ;;
+            *)
+                $cmd --version 2>&1 | head -1 || echo "installed"
+                ;;
         esac
     else
         echo "not installed"
@@ -129,23 +167,33 @@ get_version() {
 check_node_version() {
     local node_ver
     node_ver=$(node --version 2>/dev/null | sed 's/^v//')
-    if [ -z "$node_ver" ]; then return 1; fi
+    if [ -z "$node_ver" ]; then
+        return 1
+    fi
     NODE_VERSION="v${node_ver}"
-    local major minor
+    local major
     major=$(echo "$node_ver" | cut -d. -f1)
+    local minor
     minor=$(echo "$node_ver" | cut -d. -f2)
     if [ "$major" -lt 22 ] 2>/dev/null; then
         NODE_VERSION_LOW=true
-        log_step "WARN" "Node.js ${NODE_VERSION} below recommendation. OpenClaw recommends Node 24 or Node 22.16+"
+        log_step "WARN" "Node.js ${NODE_VERSION} below recommendation (OpenClaw wants 24 or 22.16+)"
     elif [ "$major" -eq 22 ] && [ "$minor" -lt 16 ] 2>/dev/null; then
         NODE_VERSION_LOW=true
-        log_step "WARN" "Node.js ${NODE_VERSION} below recommendation. OpenClaw recommends Node 24 or Node 22.16+"
+        log_step "WARN" "Node.js ${NODE_VERSION} below recommendation (OpenClaw wants 24 or 22.16+)"
     fi
 }
 
 get_install_command() {
     case "$1" in
-        "curl")        echo "install curl via $PKG_MANAGER" ;;
+        "curl")
+            case "$PKG_MANAGER" in
+                apt) echo "sudo apt-get install -y curl" ;;
+                yum) echo "sudo yum install -y curl" ;;
+                dnf) echo "sudo dnf install -y curl" ;;
+                *)   echo "install curl via $PKG_MANAGER" ;;
+            esac
+            ;;
         "Git")
             case "$PKG_MANAGER" in
                 brew)   echo "brew install git" ;;
@@ -155,7 +203,8 @@ get_install_command() {
                 pacman) echo "sudo pacman -S --noconfirm git" ;;
                 zypper) echo "sudo zypper install -y git" ;;
                 *)      echo "install git via $PKG_MANAGER" ;;
-            esac ;;
+            esac
+            ;;
         "Node.js LTS")
             case "$PKG_MANAGER" in
                 brew)   echo "brew install node" ;;
@@ -165,40 +214,51 @@ get_install_command() {
                 pacman) echo "sudo pacman -S --noconfirm nodejs npm" ;;
                 zypper) echo "sudo zypper install -y nodejs npm" ;;
                 *)      echo "install node via $PKG_MANAGER" ;;
-            esac ;;
-        "pnpm")        echo "npm install -g pnpm (fallback: corepack)" ;;
-        "Claude Code") echo "curl -fsSL https://claude.ai/install.sh | bash" ;;
-        "OpenClaw")    echo "curl -fsSL https://openclaw.ai/install.sh | bash -s -- --no-onboard" ;;
+            esac
+            ;;
+        "pnpm")
+            echo "npm install -g pnpm (fallback: corepack)"
+            ;;
+        "Claude Code")
+            echo "curl -fsSL https://claude.ai/install.sh | bash"
+            ;;
+        "OpenClaw")
+            echo "curl -fsSL https://openclaw.ai/install.sh | bash -s -- --no-onboard"
+            ;;
     esac
 }
 
-# ---- OS detection ----
-
 detect_os() {
-    local kernel arch
+    local kernel
     kernel=$(uname -s)
     case "$kernel" in
         Darwin)
             OS_TYPE="macOS"
             OS_NAME="macOS $(sw_vers -productVersion 2>/dev/null || echo 'Unknown')"
-            PKG_MANAGER="brew" ;;
+            PKG_MANAGER="brew"
+            ;;
         Linux)
             if grep -qi microsoft /proc/version 2>/dev/null; then
-                OS_TYPE="WSL"; OS_NAME="WSL"
+                OS_TYPE="WSL"
+                OS_NAME="WSL"
             else
                 OS_TYPE="Linux"
             fi
             if [ -f /etc/os-release ]; then
-                local distro version
+                local distro
+                local version
                 distro=$(grep "^ID=" /etc/os-release | cut -d= -f2 | tr -d '"')
                 version=$(grep "^VERSION_ID=" /etc/os-release | cut -d= -f2 | tr -d '"')
                 OS_NAME="${distro} ${version}"
             fi
-            detect_pkg_manager ;;
+            detect_pkg_manager
+            ;;
         *)
             echo "Error: unsupported OS: $kernel"
-            exit 1 ;;
+            exit 1
+            ;;
     esac
+    local arch
     arch=$(uname -m)
     OS_NAME="${OS_NAME} (${arch})"
     echo "OS: ${OS_NAME}"
@@ -206,17 +266,22 @@ detect_os() {
 }
 
 detect_pkg_manager() {
-    if command_exists apt-get; then      PKG_MANAGER="apt"
-    elif command_exists dnf; then        PKG_MANAGER="dnf"
-    elif command_exists yum; then        PKG_MANAGER="yum"
-    elif command_exists pacman; then     PKG_MANAGER="pacman"
-    elif command_exists zypper; then     PKG_MANAGER="zypper"
-    elif command_exists brew; then       PKG_MANAGER="brew"
-    else                                 PKG_MANAGER="unknown"
+    if command_exists apt-get; then
+        PKG_MANAGER="apt"
+    elif command_exists dnf; then
+        PKG_MANAGER="dnf"
+    elif command_exists yum; then
+        PKG_MANAGER="yum"
+    elif command_exists pacman; then
+        PKG_MANAGER="pacman"
+    elif command_exists zypper; then
+        PKG_MANAGER="zypper"
+    elif command_exists brew; then
+        PKG_MANAGER="brew"
+    else
+        PKG_MANAGER="unknown"
     fi
 }
-
-# ---- environment check (detection only, NEVER installs) ----
 
 detect_tools() {
     echo ""
@@ -292,19 +357,27 @@ detect_tools() {
     fi
 }
 
-# ---- build install queue ----
-
 build_install_queue() {
     INSTALL_QUEUE=()
-    [ "$HAS_CURL" = false ]    && INSTALL_QUEUE+=("curl")
-    [ "$HAS_GIT" = false ]     && INSTALL_QUEUE+=("Git")
-    [ "$HAS_NODE" = false ]    && INSTALL_QUEUE+=("Node.js LTS")
-    [ "$HAS_PNPM" = false ]    && INSTALL_QUEUE+=("pnpm")
-    [ "$HAS_CLAUDE" = false ]  && INSTALL_QUEUE+=("Claude Code")
-    [ "$HAS_OPENCLAW" = false ] && INSTALL_QUEUE+=("OpenClaw")
+    if [ "$HAS_CURL" = false ]; then
+        INSTALL_QUEUE+=("curl")
+    fi
+    if [ "$HAS_GIT" = false ]; then
+        INSTALL_QUEUE+=("Git")
+    fi
+    if [ "$HAS_NODE" = false ]; then
+        INSTALL_QUEUE+=("Node.js LTS")
+    fi
+    if [ "$HAS_PNPM" = false ]; then
+        INSTALL_QUEUE+=("pnpm")
+    fi
+    if [ "$HAS_CLAUDE" = false ]; then
+        INSTALL_QUEUE+=("Claude Code")
+    fi
+    if [ "$HAS_OPENCLAW" = false ]; then
+        INSTALL_QUEUE+=("OpenClaw")
+    fi
 }
-
-# ---- show plan and confirm ----
 
 show_plan_and_confirm() {
     echo ""
@@ -368,8 +441,6 @@ show_plan_and_confirm() {
     fi
 }
 
-# ---- install functions (pipe commands are functions, not string vars) ----
-
 install_claude_official() {
     curl -fsSL "$CLAUDE_INSTALL_URL" | bash
 }
@@ -379,7 +450,8 @@ install_openclaw_official() {
 }
 
 install_nodejs_nodesource() {
-    curl -fsSL "$NODE_NODESOURCE_URL" | sudo -E bash - && sudo apt-get install -y nodejs
+    curl -fsSL "$NODE_NODESOURCE_URL" | sudo -E bash -
+    sudo apt-get install -y nodejs
 }
 
 install_curl_step() {
@@ -389,13 +461,20 @@ install_curl_step() {
     fi
     log_step "INFO" "Installing curl..."
     case "$PKG_MANAGER" in
-        apt) sudo apt-get install -y curl ;;
-        yum) sudo yum install -y curl ;;
-        dnf) sudo dnf install -y curl ;;
+        apt)
+            sudo apt-get install -y curl
+            ;;
+        yum)
+            sudo yum install -y curl
+            ;;
+        dnf)
+            sudo dnf install -y curl
+            ;;
         *)
             log_step "FAIL" "curl: unknown package manager"
             FAIL_LIST+=("curl")
-            return 1 ;;
+            return 1
+            ;;
     esac
     if command_exists curl; then
         HAS_CURL=true
@@ -412,7 +491,9 @@ install_homebrew() {
         return
     fi
     log_step "INFO" "Installing Homebrew..."
-    if /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"; then
+    local brew_install_url
+    brew_install_url="https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh"
+    if /bin/bash -c "$(curl -fsSL "$brew_install_url")"; then
         if [ "$(uname -m)" = "arm64" ]; then
             eval "$(/opt/homebrew/bin/brew shellenv)" 2>/dev/null || true
         fi
@@ -434,17 +515,31 @@ install_git() {
     local result=1
     case "$PKG_MANAGER" in
         brew)
-            if ! $HAS_HOMEBREW; then install_homebrew; fi
-            brew install git && result=0 ;;
-        apt)    sudo apt-get update -qq && sudo apt-get install -y git && result=0 ;;
-        yum)    sudo yum install -y git && result=0 ;;
-        dnf)    sudo dnf install -y git && result=0 ;;
-        pacman) sudo pacman -S --noconfirm git && result=0 ;;
-        zypper) sudo zypper install -y git && result=0 ;;
+            if ! $HAS_HOMEBREW; then
+                install_homebrew
+            fi
+            brew install git && result=0
+            ;;
+        apt)
+            sudo apt-get update -qq && sudo apt-get install -y git && result=0
+            ;;
+        yum)
+            sudo yum install -y git && result=0
+            ;;
+        dnf)
+            sudo dnf install -y git && result=0
+            ;;
+        pacman)
+            sudo pacman -S --noconfirm git && result=0
+            ;;
+        zypper)
+            sudo zypper install -y git && result=0
+            ;;
         *)
             log_step "FAIL" "Git: unknown package manager"
             FAIL_LIST+=("Git")
-            return 1 ;;
+            return 1
+            ;;
     esac
     if [ $result -eq 0 ] && command_exists git; then
         HAS_GIT=true
@@ -464,21 +559,32 @@ install_nodejs() {
     local result=1
     case "$PKG_MANAGER" in
         brew)
-            if ! $HAS_HOMEBREW; then install_homebrew; fi
-            brew install node && result=0 ;;
-        apt)    install_nodejs_nodesource && result=0 ;;
+            if ! $HAS_HOMEBREW; then
+                install_homebrew
+            fi
+            brew install node && result=0
+            ;;
+        apt)
+            install_nodejs_nodesource && result=0
+            ;;
         yum|dnf)
             if [ "$PKG_MANAGER" = "dnf" ]; then
                 sudo dnf install -y nodejs 2>/dev/null && result=0
             else
                 sudo yum install -y nodejs 2>/dev/null && result=0
-            fi ;;
-        pacman) sudo pacman -S --noconfirm nodejs npm && result=0 ;;
-        zypper) sudo zypper install -y nodejs npm && result=0 ;;
+            fi
+            ;;
+        pacman)
+            sudo pacman -S --noconfirm nodejs npm && result=0
+            ;;
+        zypper)
+            sudo zypper install -y nodejs npm && result=0
+            ;;
         *)
             log_step "FAIL" "Node.js: unknown package manager"
             FAIL_LIST+=("Node.js")
-            return 1 ;;
+            return 1
+            ;;
     esac
     if [ $result -eq 0 ] && command_exists node; then
         HAS_NODE=true
@@ -574,8 +680,6 @@ install_openclaw() {
     fi
 }
 
-# ---- execute ----
-
 execute_install() {
     echo ""
     echo "=========================================="
@@ -586,17 +690,27 @@ execute_install() {
     for step in "${INSTALL_QUEUE[@]}"; do
         echo ""
         case "$step" in
-            "curl")        install_curl_step ;;
-            "Git")         install_git ;;
-            "Node.js LTS") install_nodejs ;;
-            "pnpm")        install_pnpm ;;
-            "Claude Code") install_claude ;;
-            "OpenClaw")    install_openclaw ;;
+            "curl")
+                install_curl_step
+                ;;
+            "Git")
+                install_git
+                ;;
+            "Node.js LTS")
+                install_nodejs
+                ;;
+            "pnpm")
+                install_pnpm
+                ;;
+            "Claude Code")
+                install_claude
+                ;;
+            "OpenClaw")
+                install_openclaw
+                ;;
         esac
     done
 }
-
-# ---- summary ----
 
 show_summary() {
     echo ""
@@ -647,7 +761,9 @@ show_summary() {
 }
 
 show_next_steps() {
-    if [ "$CHECK_ONLY" = true ] || [ "$DRY_RUN" = true ]; then return; fi
+    if [ "$CHECK_ONLY" = true ] || [ "$DRY_RUN" = true ]; then
+        return
+    fi
     echo ""
     echo "=========================================="
     echo "  Next Steps"
@@ -676,8 +792,6 @@ show_next_steps() {
     append_report "--- Next Steps ---"
     append_report "User must complete first-time login setup manually"
 }
-
-# ---- main ----
 
 main() {
     clear 2>/dev/null || true

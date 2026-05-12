@@ -2,11 +2,9 @@
 
 By using AI Coding Installer, you acknowledge and agree to the following terms.
 
----
-
 ## 1. About This Tool
 
-AI Coding Installer is an open-source environment setup helper script. It automates detection of your OS environment and installation of:
+AI Coding Installer is an open-source environment setup helper script. It automates detection of OS environment and installation of:
 
 - Git (open source)
 - Node.js (open source)
@@ -33,8 +31,7 @@ This script strictly observes the following:
 | Does not read SSH keys | Does not access ~/.ssh |
 | Does not read user files | Only writes install report, reads nothing else |
 
-Network requests are limited to the following official sources:
-
+Network requests are limited to official install sources:
 - `https://claude.ai/install.sh` — Claude Code official
 - `https://claude.ai/install.ps1` — Claude Code official
 - `https://openclaw.ai/install.sh` — OpenClaw official
@@ -47,16 +44,11 @@ The install report (`ai-coding-install-report.txt`) is saved locally only and is
 ## 3. Accounts and API Keys
 
 After Claude Code and OpenClaw are installed, the user must personally complete:
-
 - Anthropic account login
 - API Key application, entry, and safekeeping
 - OpenClaw account login and configuration
 
-These steps are outside the scope of this script's automation. The script only provides terminal reminders after installation. The user is responsible for:
-
-- API Key confidentiality
-- API usage billing management
-- Account security
+These steps are outside the scope of this script's automation.
 
 ## 4. Disclaimer
 
@@ -69,15 +61,10 @@ These steps are outside the scope of this script's automation. The script only p
 ## 5. Third-Party Software Licenses
 
 Third-party software installed by this tool is subject to their respective licenses:
-
 - Git: GNU General Public License v2
 - Node.js: MIT License
 - pnpm: MIT License
 - Claude Code: Anthropic Terms of Service
 - OpenClaw: respective commercial license
-
-Users should read and agree to these terms before use.
-
----
 
 *Last updated: 2026-05-12*

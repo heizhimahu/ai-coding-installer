@@ -31,7 +31,6 @@ if ($DryRun -and $CheckOnly) {
     exit 1
 }
 
-# ---- config ----
 $ClaudeInstallUrl = "https://claude.ai/install.ps1"
 $ClaudeInstallWinget = "winget install --id Anthropic.ClaudeCode -e --source winget --accept-source-agreements"
 $OpenClawInstallUrl = "https://openclaw.ai/install.ps1"
@@ -39,7 +38,6 @@ $GitInstallWinget = "winget install --id Git.Git -e --source winget --accept-sou
 $NodeInstallWinget = "winget install --id OpenJS.NodeJS.LTS -e --source winget --accept-source-agreements"
 $PnpmInstallNpm = "npm install -g pnpm"
 
-# ---- state ----
 $ReportFile = Join-Path $env:USERPROFILE "ai-coding-install-report.txt"
 $Script:SuccessCount = 0
 $Script:SkipCount = 0
@@ -57,8 +55,6 @@ $Script:HasOpenClaw = $false
 $Script:IsAdmin = $false
 $Script:NodeVersionLow = $false
 $Script:NodeVersion = ""
-
-# ---- helpers ----
 
 function Init-Report {
     $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
@@ -135,8 +131,6 @@ function Get-InstallCommand {
     }
 }
 
-# ---- OS detection ----
-
 function Detect-OS {
     $osInfo = Get-CimInstance Win32_OperatingSystem
     $build = $osInfo.BuildNumber
@@ -160,8 +154,6 @@ function Detect-OS {
     }
 }
 
-# ---- Node version check ----
-
 function Test-NodeVersion {
     param([string]$VersionString)
     if ($VersionString -eq "not installed" -or $VersionString -match "unknown") { return }
@@ -173,10 +165,8 @@ function Test-NodeVersion {
     $Script:NodeVersion = $VersionString
     if ($major -gt 22 -or ($major -eq 22 -and $minor -ge 16)) { return }
     $Script:NodeVersionLow = $true
-    Write-Log "WARN" "Node.js $VersionString below recommendation. OpenClaw recommends Node 24 or Node 22.16+"
+    Write-Log "WARN" "Node.js $VersionString below recommendation (OpenClaw wants 24 or 22.16+)"
 }
-
-# ---- environment check (detection only, NEVER installs) ----
 
 function Detect-Tools {
     Write-Host ""
@@ -243,8 +233,6 @@ function Detect-Tools {
     }
 }
 
-# ---- build install queue ----
-
 function Build-InstallQueue {
     $Script:InstallQueue = @()
     if (-not $Script:HasGit)      { $Script:InstallQueue += "Git" }
@@ -253,8 +241,6 @@ function Build-InstallQueue {
     if (-not $Script:HasClaude)   { $Script:InstallQueue += "Claude Code" }
     if (-not $Script:HasOpenClaw) { $Script:InstallQueue += "OpenClaw" }
 }
-
-# ---- show plan and confirm ----
 
 function Show-PlanAndConfirm {
     Write-Host ""
@@ -271,11 +257,13 @@ function Show-PlanAndConfirm {
         Append-Report ""
         Append-Report "--- Install Plan ---"
     }
+
     if ($Script:InstallQueue.Count -eq 0) {
         Write-Host "All components already installed."
         Append-Report "All components already installed."
         return $true
     }
+
     Write-Host "Will install $($Script:InstallQueue.Count) components:"
     Append-Report "Will install $($Script:InstallQueue.Count) components:"
     for ($i = 0; $i -lt $Script:InstallQueue.Count; $i++) {
@@ -289,11 +277,13 @@ function Show-PlanAndConfirm {
             Append-Report "      -> $cmd"
         }
     }
+
     if ($Script:NodeVersionLow) {
         Write-Host ""
         Write-Host "  WARN: Node.js $Script:NodeVersion below OpenClaw recommendation (24 or 22.16+)."
         Write-Host "  Node will NOT be auto-upgraded."
     }
+
     if ($DryRun) {
         Write-Host ""
         Write-Host "[DRY-RUN] Preview only. No install actions performed."
@@ -301,6 +291,7 @@ function Show-PlanAndConfirm {
         Append-Report "[DRY-RUN] Preview only."
         return $false
     }
+
     Write-Host ""
     Write-Host "Report will be saved to: $ReportFile"
     Write-Host ""
@@ -312,8 +303,6 @@ function Show-PlanAndConfirm {
     }
     return $true
 }
-
-# ---- install functions ----
 
 function Install-Git {
     if ($Script:HasGit) {
@@ -493,8 +482,6 @@ function Show-OpenClawPostInstall {
     Write-Host "  Service provider does not ask for or record these."
 }
 
-# ---- execute ----
-
 function Execute-Install {
     Write-Host ""
     Write-Host "=========================================="
@@ -513,8 +500,6 @@ function Execute-Install {
         }
     }
 }
-
-# ---- summary and next steps ----
 
 function Show-Summary {
     Write-Host ""
@@ -594,8 +579,6 @@ function Show-NextSteps {
     Append-Report "--- Next Steps ---"
     Append-Report "User must complete first-time login setup manually"
 }
-
-# ---- main ----
 
 function Main {
     Clear-Host
