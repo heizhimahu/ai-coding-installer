@@ -1,13 +1,12 @@
 # ============================================================
 # AI Coding Installer — Windows 10/11
 # Version: 2.0.0
-# Installs: Git, Node.js LTS, pnpm, Claude Code, OpenClaw
 # ============================================================
 # Security:
-#   - Does NOT read, save, or upload passwords/API Keys/Tokens/Cookies
+#   - Does NOT read/save/upload passwords / API Keys / Tokens / Cookies
 #   - Does NOT modify system security policy
 #   - All install steps require user confirmation
-#   - Report is saved locally only
+#   - Report saved locally only
 # ============================================================
 
 [CmdletBinding()]
@@ -21,14 +20,9 @@ if ($Help) {
     Write-Host "Usage: .\install-windows.ps1 [options]"
     Write-Host ""
     Write-Host "Options:"
-    Write-Host "  -DryRun       Check environment, show install plan, do NOT install"
-    Write-Host "  -CheckOnly    Check environment and generate report, do NOT install"
+    Write-Host "  -DryRun       Check env, show plan, do NOT install"
+    Write-Host "  -CheckOnly    Check env, generate report, do NOT install"
     Write-Host "  -Help         Show this help"
-    Write-Host ""
-    Write-Host "Examples:"
-    Write-Host "  .\install-windows.ps1 -CheckOnly"
-    Write-Host "  .\install-windows.ps1 -DryRun"
-    Write-Host "  .\install-windows.ps1"
     exit 0
 }
 
@@ -37,24 +31,15 @@ if ($DryRun -and $CheckOnly) {
     exit 1
 }
 
-# ============================================================
-# Install config
-# ============================================================
-
+# ---- config ----
 $ClaudeInstallUrl = "https://claude.ai/install.ps1"
 $ClaudeInstallWinget = "winget install --id Anthropic.ClaudeCode -e --source winget --accept-source-agreements"
-
 $OpenClawInstallUrl = "https://openclaw.ai/install.ps1"
-
 $GitInstallWinget = "winget install --id Git.Git -e --source winget --accept-source-agreements"
-
 $NodeInstallWinget = "winget install --id OpenJS.NodeJS.LTS -e --source winget --accept-source-agreements"
-
 $PnpmInstallNpm = "npm install -g pnpm"
 
-# ============================================================
-# Global state
-# ============================================================
+# ---- state ----
 $ReportFile = Join-Path $env:USERPROFILE "ai-coding-install-report.txt"
 $Script:SuccessCount = 0
 $Script:SkipCount = 0
@@ -62,7 +47,6 @@ $Script:FailCount = 0
 $Script:MissingCount = 0
 $Script:FailList = @()
 $Script:InstallQueue = @()
-
 $Script:HasWinget = $false
 $Script:HasGit = $false
 $Script:HasNode = $false
@@ -74,14 +58,11 @@ $Script:IsAdmin = $false
 $Script:NodeVersionLow = $false
 $Script:NodeVersion = ""
 
-# ============================================================
-# Report helpers
-# ============================================================
+# ---- helpers ----
 
 function Init-Report {
     $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
     $osInfo = Get-CimInstance Win32_OperatingSystem
-
     if ($CheckOnly) {
         $title = "[CHECK-ONLY] Environment Check Report"
     } elseif ($DryRun) {
@@ -89,7 +70,6 @@ function Init-Report {
     } else {
         $title = "Install Report"
     }
-
     $content = @"
 ==========================================
   AI Coding Installer — ${title}
@@ -107,10 +87,6 @@ function Append-Report {
     param([string]$Message)
     Add-Content -Path $ReportFile -Value $Message -Encoding utf8
 }
-
-# ============================================================
-# Logging
-# ============================================================
 
 function Write-Log {
     param(
@@ -131,10 +107,6 @@ function Write-Log {
     Write-Host $line
     Append-Report $line
 }
-
-# ============================================================
-# Utility helpers
-# ============================================================
 
 function Test-Command {
     param([string]$CommandName)
@@ -163,25 +135,20 @@ function Get-InstallCommand {
     }
 }
 
-# ============================================================
-# OS detection
-# ============================================================
+# ---- OS detection ----
 
 function Detect-OS {
     $osInfo = Get-CimInstance Win32_OperatingSystem
     $build = $osInfo.BuildNumber
     $version = $osInfo.Version
     $arch = if ([System.Environment]::Is64BitOperatingSystem) { "x64" } else { "x86" }
-
     Write-Host "OS: $($osInfo.Caption) ($arch)"
     Write-Host "Version: $version (Build $build)"
     Append-Report "OS: $($osInfo.Caption) ($arch)"
     Append-Report "Version: $version (Build $build)"
-
     if ([int]$build -lt 10240) {
         Write-Host "Warning: older Windows version detected"
     }
-
     $currentPrincipal = New-Object Security.Principal.WindowsPrincipal(
         [Security.Principal.WindowsIdentity]::GetCurrent()
     )
@@ -193,31 +160,23 @@ function Detect-OS {
     }
 }
 
-# ============================================================
-# Node version check
-# ============================================================
+# ---- Node version check ----
 
 function Test-NodeVersion {
     param([string]$VersionString)
-    if ($VersionString -eq "not installed" -or $VersionString -match "unknown") {
-        return
-    }
+    if ($VersionString -eq "not installed" -or $VersionString -match "unknown") { return }
     $ver = $VersionString -replace '^v', ''
     $parts = $ver -split '\.'
     if ($parts.Count -lt 2) { return }
     $major = [int]$parts[0]
     $minor = [int]$parts[1]
     $Script:NodeVersion = $VersionString
-    if ($major -gt 22 -or ($major -eq 22 -and $minor -ge 16)) {
-        return
-    }
+    if ($major -gt 22 -or ($major -eq 22 -and $minor -ge 16)) { return }
     $Script:NodeVersionLow = $true
-    Write-Log "WARN" "Node.js $VersionString below recommended. OpenClaw recommends Node 24 or Node 22.16+"
+    Write-Log "WARN" "Node.js $VersionString below recommendation. OpenClaw recommends Node 24 or Node 22.16+"
 }
 
-# ============================================================
-# Environment check (detection only, no install)
-# ============================================================
+# ---- environment check (detection only, NEVER installs) ----
 
 function Detect-Tools {
     Write-Host ""
@@ -284,13 +243,10 @@ function Detect-Tools {
     }
 }
 
-# ============================================================
-# Build install queue
-# ============================================================
+# ---- build install queue ----
 
 function Build-InstallQueue {
     $Script:InstallQueue = @()
-
     if (-not $Script:HasGit)      { $Script:InstallQueue += "Git" }
     if (-not $Script:HasNode)     { $Script:InstallQueue += "Node.js LTS" }
     if (-not $Script:HasPnpm)     { $Script:InstallQueue += "pnpm" }
@@ -298,13 +254,10 @@ function Build-InstallQueue {
     if (-not $Script:HasOpenClaw) { $Script:InstallQueue += "OpenClaw" }
 }
 
-# ============================================================
-# Show plan and confirm
-# ============================================================
+# ---- show plan and confirm ----
 
 function Show-PlanAndConfirm {
     Write-Host ""
-
     if ($DryRun) {
         Write-Host "=========================================="
         Write-Host "  [DRY-RUN] Install Preview"
@@ -318,14 +271,12 @@ function Show-PlanAndConfirm {
         Append-Report ""
         Append-Report "--- Install Plan ---"
     }
-
     if ($Script:InstallQueue.Count -eq 0) {
         Write-Host "All components already installed."
         Append-Report "All components already installed."
         return $true
     }
-
-    Write-Host "Will install $($Script:InstallQueue.Count) components in order:"
+    Write-Host "Will install $($Script:InstallQueue.Count) components:"
     Append-Report "Will install $($Script:InstallQueue.Count) components:"
     for ($i = 0; $i -lt $Script:InstallQueue.Count; $i++) {
         $num = $i + 1
@@ -338,25 +289,21 @@ function Show-PlanAndConfirm {
             Append-Report "      -> $cmd"
         }
     }
-
     if ($Script:NodeVersionLow) {
         Write-Host ""
         Write-Host "  WARN: Node.js $Script:NodeVersion below OpenClaw recommendation (24 or 22.16+)."
         Write-Host "  Node will NOT be auto-upgraded."
     }
-
     if ($DryRun) {
         Write-Host ""
-        Write-Host "[DRY-RUN] Preview only, no install actions performed."
+        Write-Host "[DRY-RUN] Preview only. No install actions performed."
         Write-Host "Report saved to: $ReportFile"
         Append-Report "[DRY-RUN] Preview only."
         return $false
     }
-
     Write-Host ""
     Write-Host "Report will be saved to: $ReportFile"
     Write-Host ""
-
     $confirm = Read-Host "Confirm installation? (y/N)"
     if ($confirm -ne "y" -and $confirm -ne "Y") {
         Write-Host "Cancelled."
@@ -366,9 +313,7 @@ function Show-PlanAndConfirm {
     return $true
 }
 
-# ============================================================
-# Install functions
-# ============================================================
+# ---- install functions ----
 
 function Install-Git {
     if ($Script:HasGit) {
@@ -464,7 +409,6 @@ function Install-Claude {
         Write-Log "SKIP" "Claude Code: already installed, skipping"
         return
     }
-
     if ($Script:HasWinget) {
         Write-Log "INFO" "Installing Claude Code via WinGet..."
         try {
@@ -486,7 +430,6 @@ function Install-Claude {
             Write-Host "        WinGet failed, trying official script..."
         }
     }
-
     Write-Log "INFO" "Installing Claude Code via official script..."
     try {
         $scriptContent = Invoke-RestMethod -Uri $ClaudeInstallUrl
@@ -512,7 +455,7 @@ function Install-Claude {
 function Show-ClaudePostInstall {
     Write-Host ""
     Write-Host "  NOTE: Run 'claude' to complete first-time setup."
-    Write-Host "  Login, verification, and API Key must be entered by you."
+    Write-Host "  Login and API Key must be entered by you personally."
     Write-Host "  Service provider does not ask for or record these."
 }
 
@@ -546,13 +489,11 @@ function Install-OpenClaw {
 function Show-OpenClawPostInstall {
     Write-Host ""
     Write-Host "  NOTE: Run 'openclaw' to complete onboarding."
-    Write-Host "  Onboarding, login, and API Key must be done by you."
+    Write-Host "  Onboarding, login, API Key must be done by you personally."
     Write-Host "  Service provider does not ask for or record these."
 }
 
-# ============================================================
-# Execute install
-# ============================================================
+# ---- execute ----
 
 function Execute-Install {
     Write-Host ""
@@ -561,7 +502,6 @@ function Execute-Install {
     Write-Host "=========================================="
     Append-Report ""
     Append-Report "--- Install Process ---"
-
     foreach ($step in $Script:InstallQueue) {
         Write-Host ""
         switch ($step) {
@@ -574,31 +514,26 @@ function Execute-Install {
     }
 }
 
-# ============================================================
-# Summary and next steps
-# ============================================================
+# ---- summary and next steps ----
 
 function Show-Summary {
     Write-Host ""
-
     if ($CheckOnly) {
         Write-Host "=========================================="
         Write-Host "  Environment Check Summary"
         Write-Host "=========================================="
         Append-Report ""
         Append-Report "--- Environment Check Summary ---"
-        $summary = "Ready: $SkipCount, Missing: $MissingCount"
-        Write-Host $summary
-        Append-Report $summary
+        Write-Host "Ready: $SkipCount, Missing: $MissingCount"
+        Append-Report "Ready: $SkipCount, Missing: $MissingCount"
     } elseif ($DryRun) {
         Write-Host "=========================================="
         Write-Host "  Preview Summary"
         Write-Host "=========================================="
         Append-Report ""
         Append-Report "--- Preview Summary ---"
-        $summary = "To install: $($Script:InstallQueue.Count), Ready: $SkipCount, Missing: $MissingCount"
-        Write-Host $summary
-        Append-Report $summary
+        Write-Host "To install: $($Script:InstallQueue.Count), Ready: $SkipCount, Missing: $MissingCount"
+        Append-Report "To install: $($Script:InstallQueue.Count), Ready: $SkipCount, Missing: $MissingCount"
         Write-Host ""
         Write-Host "[DRY-RUN] No install actions performed."
         Append-Report "[DRY-RUN] No install actions performed."
@@ -608,10 +543,8 @@ function Show-Summary {
         Write-Host "=========================================="
         Append-Report ""
         Append-Report "--- Install Summary ---"
-        $summary = "OK: $SuccessCount, Skip: $SkipCount, Missing: $MissingCount, Fail: $FailCount"
-        Write-Host $summary
-        Append-Report $summary
-
+        Write-Host "OK: $SuccessCount, Skip: $SkipCount, Missing: $MissingCount, Fail: $FailCount"
+        Append-Report "OK: $SuccessCount, Skip: $SkipCount, Missing: $MissingCount, Fail: $FailCount"
         if ($Script:FailList.Count -gt 0) {
             Write-Host ""
             Write-Host "Failed components:"
@@ -624,7 +557,6 @@ function Show-Summary {
             Write-Host "Please install failed components manually and re-run."
         }
     }
-
     Write-Host ""
     Write-Host "Full report saved to: $ReportFile"
     Append-Report ""
@@ -634,7 +566,6 @@ function Show-Summary {
 
 function Show-NextSteps {
     if ($CheckOnly -or $DryRun) { return }
-
     Write-Host ""
     Write-Host "=========================================="
     Write-Host "  Next Steps"
@@ -653,25 +584,18 @@ function Show-NextSteps {
     Write-Host "      - Login and configure API Key"
     Write-Host ""
     Write-Host "  3. Verify installation:"
-    Write-Host "      git --version"
-    Write-Host "      node --version"
-    Write-Host "      npm --version"
-    Write-Host "      pnpm --version"
-    Write-Host "      claude --version"
-    Write-Host "      openclaw --version"
+    Write-Host "      git --version; node --version; npm --version"
+    Write-Host "      pnpm --version; claude --version; openclaw --version"
     Write-Host ""
     Write-Host "  Login, passwords, API Keys must be entered by the user."
     Write-Host "  Service provider does not ask for or record these."
     Write-Host ""
-
     Append-Report ""
     Append-Report "--- Next Steps ---"
     Append-Report "User must complete first-time login setup manually"
 }
 
-# ============================================================
-# Main
-# ============================================================
+# ---- main ----
 
 function Main {
     Clear-Host
@@ -685,16 +609,13 @@ function Main {
     }
     Write-Host "=========================================="
     Write-Host ""
-
     Init-Report
     Detect-OS
     Detect-Tools
-
     if ($CheckOnly) {
         Show-Summary
         return
     }
-
     Build-InstallQueue
     $confirmed = Show-PlanAndConfirm
     if ($confirmed) {
